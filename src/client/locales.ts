@@ -19,7 +19,7 @@ export const zh = {
   'submit': '登录',
   'submitting': '登录中…',
   'later': '稍后',
-  'needAccount': '还没有账号？到 openlux.ai 注册后回来登录。',
+  'needAccount': '还没有账号？到 echoflowai.cc 注册后回来登录。',
   'emptyFields': '请输入账号与密码',
 
   'captchaClickTitle': '按提示顺序点击图中内容',
@@ -120,7 +120,7 @@ export const en = {
   'submit': 'Sign in',
   'submitting': 'Signing in…',
   'later': 'Later',
-  'needAccount': 'No account yet? Register at openlux.ai, then come back.',
+  'needAccount': 'No account yet? Register at echoflowai.cc, then come back.',
   'emptyFields': 'Enter your account and password',
 
   'captchaClickTitle': 'Click the items in the order shown',

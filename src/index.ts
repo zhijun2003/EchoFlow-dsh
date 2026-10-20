@@ -133,7 +133,7 @@ type RuntimeModelDefaults = MutableModelDefaults
  * failure that reads like the service is down (measured 2026-08-20: `Host:
  * localhost:3001` serves 101 models, `Host: 127.0.0.1:3001` serves nothing).
  */
-const DEFAULT_BASE_URL = process.env.OPENLUX_BASE_URL ?? 'https://api.openlux.ai'
+const DEFAULT_BASE_URL = process.env.OPENLUX_BASE_URL ?? 'https://api.echoflowai.cc'
 
 /** Who is signed in, as far as the browser needs to know. */
 export interface AccountStatus {

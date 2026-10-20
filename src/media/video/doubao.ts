@@ -88,7 +88,19 @@ const FAILED = new Set(['failed', 'expired', 'cancelled', 'canceled'])
  * answer `{url}`). Round-tripped live 2026-09-24: a 600 KB JPEG came back
  * byte-identical from the returned URL.
  */
-const IMAGE_HOST_UPLOAD_URL = 'https://imageproxy.zhongzhuan.chat/api/upload'
+// Point this at an image host that speaks multipart `file` -> `{url}` if the
+// upstream default is unreachable for your station. Probe first: the gateway
+// answers unknown `/desktop/v1/*` paths with its frontend HTML (HTTP 200), not
+// a 404, so a 200 alone does not prove a route exists — check the body is JSON.
+//
+// The upstream default (`imageproxy.zhongzhuan.chat`) no longer resolves as of
+// 2026-10-20, and `api.echoflowai.cc` serves no equivalent route: probing
+// `/api/upload`, `/desktop/v1/image-host/upload`, `/desktop/v1/imagehost/upload`
+// and `/api/desktop/image-host` returns either the frontend HTML or a 404. Only
+// doubao first-frame video uploads use this host; every other image path goes
+// through the station's own `/v1`.
+const IMAGE_HOST_UPLOAD_URL =
+  process.env.ECHOFLOW_IMAGE_HOST_UPLOAD_URL ?? 'https://imageproxy.zhongzhuan.chat/api/upload'
 
 /** Upload budget: the frame can be several MB and the host is remote. */
 const UPLOAD_TIMEOUT_MS = 60_000
