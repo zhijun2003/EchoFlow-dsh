@@ -1,0 +1,917 @@
+/**
+ * OpenLux account plugin, browser half: sign-in as one entry in the shell's
+ * first-run queue, the account row at the sidebar foot, the account page behind
+ * it, and the market overlay launched from the same foot.
+ *
+ * The three account surfaces share one store, because each can change what the
+ * others show — signing in from the step lights up the row, signing out from
+ * the page brings the login page back. The market overlay has its own
+ * open/closed store, shared by the launcher button and the frame-wide panel.
+ *
+ * ## How the foot is divided
+ *
+ * The foot has one action slot and one Settings row. Upstream renders the list
+ * action slot as a single flex line, but this product has automation, market,
+ * and sometimes temporary expert/Cordis entries. `footer-row-style.ts` turns
+ * that one list container into an arbitrary-length column. The account still
+ * owns the Settings row by shadowing the kernel trigger at lower priority.
+ */
+
+import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
+// No `bindSnapshotSelector` import: rc.2 deleted `dsh-client-web-react` and the
+// binder moved inside the renderer without an export. A plugin now hands the
+// bare store over in a `hooks` compartment and the renderer binds it into a
+// `use<Name>` selector before the component sees it.
+// Type-only: merges the settings shell's slot rows, including
+// 'settings.onboarding', into the SlotMap this file registers against.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: same, for the sidebar's 'sidebar.footer.action'.
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+// Type-only: same, for the frame-wide 'shell.overlay'.
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: merges the locale plugin's `ctx.locale`; the named service type
+// also keeps this source stable when a test project resolves a second Cordis copy.
+import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: same, for the tool tree's keyed 'tool.call.toolview'.
+import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
+// Type-only: the rail's two types, for the face the file button is handed.
+import type { ComposerAttachment, DraftAttachmentId } from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: merges the trigger registry's `ctx.inputTriggers`, which owns the
+// file-reference source registered below.
+import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import { ACCOUNT_SECTION_ID, ACCOUNT_SECTION_ORDER, AccountSection } from './AccountSection.tsx'
+import type { AccountSectionInjected } from './AccountSection.tsx'
+import { ACCOUNT_TRIGGER_PRIORITY, AccountTrigger } from './AccountTrigger.tsx'
+import type { AccountTriggerInjected } from './AccountTrigger.tsx'
+import { ATTACH_FILE_ID, ATTACH_FILE_ORDER, AttachFileButton } from './AttachFileButton.tsx'
+import { CONNECTOR_CAPSULE_ID, CONNECTOR_CAPSULE_ORDER, ConnectorCapsule } from './ConnectorCapsule.tsx'
+import type { ConnectorCapsuleInjected } from './ConnectorCapsule.tsx'
+import type { AttachFileInjected } from './AttachFileButton.tsx'
+import { bindComposerAdd, openComposerAdd } from './composer-add.ts'
+import {
+  AUTOMATION_LAUNCHER_ID, AUTOMATION_LAUNCHER_ORDER, AutomationLauncher,
+} from './AutomationLauncher.tsx'
+import {
+  AUTOMATION_OVERLAY_ID, AUTOMATION_OVERLAY_ORDER, AutomationOverlay,
+  type AutomationOverlayInjected,
+} from './AutomationOverlay.tsx'
+import type { AutomationSourceSession } from './AutomationPage.tsx'
+import {
+  en as automationEn, zh as automationZh, type AutomationKey,
+} from './automation-locales.ts'
+import { createAutomationViewStore } from './automation-view-store.ts'
+import { en as filesEn, zh as filesZh, type FilesKey } from './files-locales.ts'
+import { callAccountHost } from './host.ts'
+import { createImageLoaders } from './image-loader.ts'
+import { ImageToolCard, type ImageCardInjected } from './ImageToolCard.tsx'
+import { en, zh, type AccountKey } from './locales.ts'
+import {
+  LOGIN_EXPIRED_ID, LOGIN_EXPIRED_ORDER, LoginExpiredDialog,
+  type LoginExpiredInjected,
+} from './LoginExpiredDialog.tsx'
+import { en as marketEn, zh as marketZh, type MarketKey } from './market-locales.ts'
+import { en as mediaEn, zh as mediaZh, type MediaKey } from './media-locales.ts'
+import { IMAGE_SHOW_TOOL_NAME, IMAGE_TOOL_NAME } from '../media/name.ts'
+import { MARKET_LAUNCHER_ID, MARKET_LAUNCHER_ORDER, MarketLauncher } from './MarketLauncher.tsx'
+import { MARKET_OVERLAY_ID, MARKET_OVERLAY_ORDER, MarketOverlay } from './MarketOverlay.tsx'
+import type { MarketOverlayInjected } from './MarketOverlay.tsx'
+import { createMarketViewStore } from './market-view-store.ts'
+import {
+  HiddenPresetRow, HiddenPresetSection, PRESET_ROW_ID, PRESET_ROW_ORDER, PRESET_ROW_PRIORITY,
+  PRESET_SECTION_ID, PRESET_SECTION_ORDER, PRESET_SECTION_PRIORITY,
+} from './HiddenPresetSeats.tsx'
+import {
+  HiddenSessionLogDownload, SESSION_LOG_DOWNLOAD_ID, SESSION_LOG_DOWNLOAD_PRIORITY,
+} from './HiddenSessionLogDownload.tsx'
+import { PRESET_CHIP_PRIORITY, PresetChip } from './PresetChip.tsx'
+import type { PresetChipInjected } from './PresetChip.tsx'
+import { PRESET_SETTINGS_NS, PresetRoster } from './preset-roster.ts'
+import {
+  SESSION_DELETE_CONFIRM_ID, SESSION_DELETE_CONFIRM_ORDER, SessionDeleteConfirm,
+  type SessionDeleteConfirmInjected, type SessionDeleteRequest,
+} from './SessionDeleteConfirm.tsx'
+import {
+  en as sessionsEn, zh as sessionsZh, type SessionDeleteKey,
+} from './session-delete-locales.ts'
+import { modelChoice, watchModelChoice } from './selection.ts'
+import { SIGN_IN_ORDER, SIGN_IN_STEP_ID, SignInStep } from './SignInStep.tsx'
+import type { SignInStepInjected } from './SignInStep.tsx'
+import { AccountStore } from './store.ts'
+import { composerFor, SummonController, type SummonRequest } from './summon.ts'
+import { TOKEN_SECTION_ID, TOKEN_SECTION_ORDER, TokenSection } from './TokenSection.tsx'
+import { appendFileReference, fileReferenceSource } from './file-reference.ts'
+import { skillLexiconSource } from './skill-lexicon.ts'
+import { installAccountStyle } from './account-style.ts'
+import { installFileChipStyle } from './file-chip-style.ts'
+import { installBubbleRefStyle } from './bubble-ref-style.ts'
+import { installAutomationChipStyle } from './automation-chip-style.ts'
+import { installFooterRowStyle } from './footer-row-style.ts'
+import { installMarketCardStyle } from './market-card-style.ts'
+import { installMarketDialogStyle } from './market-dialog-style.ts'
+
+export { ACCOUNT_SECTION_ID, AccountSection } from './AccountSection.tsx'
+export type { AccountSectionInjected } from './AccountSection.tsx'
+export { ACCOUNT_TRIGGER_ID, AccountTrigger } from './AccountTrigger.tsx'
+export type { AccountTriggerInjected } from './AccountTrigger.tsx'
+export { SIGN_IN_ID } from './SignInForm.tsx'
+export { LOGIN_EXPIRED_ID, LoginExpiredDialog } from './LoginExpiredDialog.tsx'
+export type { LoginExpiredInjected } from './LoginExpiredDialog.tsx'
+export { SIGN_IN_ORDER, SIGN_IN_STEP_ID, SignInStep } from './SignInStep.tsx'
+export type { SignInStepInjected } from './SignInStep.tsx'
+export { AccountStore } from './store.ts'
+export type { AccountView, Balance, BalanceStatus } from './store.ts'
+export type { AccountKey } from './locales.ts'
+export type { AccountHostCaller } from './types.ts'
+
+declare global {
+  interface Window {
+    /**
+     * Consumed by the two-line `dsh-client-ui-workspace` patch that appends a
+     * 删除 item to the sidebar session row menu. The item only renders while
+     * this hook is installed, so an unpatched or plugin-less build degrades to
+     * the stock three-item menu.
+     */
+    __openluxSessionActions?: {
+      readonly deleteLabel: string
+      requestDelete(sessionId: string, title: string): void
+    }
+    /**
+     * Consumed by the `dsh-client-runtime` patch inside `contextProvenance`:
+     * the transcript's context-injection rows show the producer name recorded
+     * in the durable log (`@deepseek-ai/dsh-system-prompt` for runtime-context
+     * snapshots), and this map rewrites those names at display time only. The
+     * log itself is never touched — the recorded name doubles as the snapshot
+     * ownership key (`isOwned` in `dsh-agent-loop/lib/index.js:16-19`), so
+     * renaming at the write side would orphan every existing snapshot. Without
+     * the plugin (or the patch) the stock package names show through.
+     */
+    __openluxProducerLabels?: Readonly<Record<string, string>>
+    /**
+     * Consumed by the `dsh-client-ui-conversation` patch inside the
+     * input-message `buildViewNode`: a context-injection row whose plugin
+     * producer is listed here is not rendered at all in the conversation.
+     * Display-only — the durable log and the model context keep the message;
+     * the trajectory tab still shows it, deliberately, as the debug window.
+     * Today this hides the case-reference reading instruction, whose absolute
+     * file path is plumbing the user should never have to look at.
+     */
+    __openluxProducerHidden?: readonly string[]
+    /**
+     * Consumed by the `dsh-client-ui-model-selection` patch inside ModelSelect's
+     * model list pane. The footer only renders while this hook is installed,
+     * so an unpatched or plugin-less build degrades to the stock picker.
+     */
+    __openluxModelCatalog?: {
+      readonly label: string
+      requestFetch(): void
+    }
+    /**
+     * Consumed by the `dsh-client-ui-conversation` patch on InputBar's `+`:
+     * while installed, the button carries this label and hands its press here;
+     * `false` (no menu for that session) falls back to the stock command menu,
+     * as does an unpatched or plugin-less build.
+     */
+    __openluxComposerAdd?: {
+      readonly label: string
+      open(sessionId: string | undefined, anchor: HTMLElement): boolean
+    }
+    /**
+     * Installed by the `dsh-client-ui-settings-general` patch on SettingsRoot.
+     * Same function onboarding already receives: set the active section and
+     * open the panel. Torn down with the shell.
+     */
+    __openluxOpenSection?: (id: string) => void
+    /**
+     * One-shot intent: composer footer sets this, then opens the models
+     * section. The official card consumes it by running the existing
+     * `fetchModels()`. Also announced as `openlux:fetch-available-models`
+     * for an editor that is already mounted.
+     */
+    __openluxPendingFetch?: boolean
+  }
+}
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Sign-in, challenge, and account-row copy. */
+    'openlux.account': AccountKey
+    /** Market gallery copy. */
+    'openlux.market': MarketKey
+    /** Local scheduled-task page copy. */
+    'openlux.automation': AutomationKey
+    /** Row-menu session delete copy (menu label and confirm card). */
+    'openlux.sessions': SessionDeleteKey
+    /** Image tool card copy, including the attachment atoms' labels. */
+    'openlux.media': MediaKey
+    /** The composer file button's copy. */
+    'openlux.files': FilesKey
+  }
+}
+
+/** Dictionary namespace owned by this plugin. */
+const NS = 'openlux.account'
+
+/** The market overlay's own namespace; a launcher label is read outside the panel. */
+const MARKET_NS = 'openlux.market'
+
+/** The automation page and its sidebar trigger. */
+const AUTOMATION_NS = 'openlux.automation'
+
+/** The row-menu delete item's label and its confirm card. */
+const SESSIONS_NS = 'openlux.sessions'
+
+/** The image card's own namespace. */
+const MEDIA_NS = 'openlux.media'
+
+/** The composer file button's own namespace. */
+const FILES_NS = 'openlux.files'
+
+/**
+ * The conversation service in the two members the rail re-route needs.
+ *
+ * Narrowed by hand because the face the kernel publishes on `ctx.conversation`
+ * is narrower still: `IConversation` is the send/cancel side, while the draft
+ * image registry lives on the `ConversationController` that fills it. Reaching
+ * the wider object is a cast either way; this states which two members the cast
+ * is being made for.
+ */
+interface DraftImageFace {
+  draftImages(ids: readonly DraftAttachmentId[]): readonly ComposerAttachment[]
+  releaseDraftImage(id: DraftAttachmentId): void
+}
+
+/**
+ * The one member of the typed Client Remote this file listens to, named
+ * structurally like the other cross-package faces here: the value is reached
+ * through the service registry, and the broadcast is a stable forwarded event
+ * (`API_REMOTE_FORWARDED_EVENTS` in `dsh-api-remotes`).
+ */
+interface RemoteSummonEvents {
+  $on(
+    event: 'agent-preset/selected',
+    handler: (sessionId: string, agentPreset: string) => void,
+  ): () => void
+}
+
+/**
+ * Summon-history storage. WorkBuddy persists exactly this on every summon
+ * (`addExpertToHistory(SHARED_RECENT_EXPERTS_KEY, { id, summonedAt, … })`) and
+ * reads it back when the automation editor opens; ids are enough for us since
+ * the editor resolves names from the host's expert options. localStorage is
+ * per Electron profile, so the list survives restarts — which the session list
+ * cannot provide (cold summaries drop event-recorded presets).
+ */
+const RECENT_EXPERTS_KEY = 'openlux.automation.recent-experts'
+
+/** Stored bound. Display narrows further: the editor only shows installed experts. */
+const RECENT_EXPERTS_CAP = 16
+
+function readRecentExperts(): readonly string[] {
+  try {
+    const raw = window.localStorage.getItem(RECENT_EXPERTS_KEY)
+    if (raw === null) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((id): id is string => typeof id === 'string').slice(0, RECENT_EXPERTS_CAP)
+  } catch {
+    return []
+  }
+}
+
+function writeRecentExperts(ids: readonly string[]): void {
+  try {
+    window.localStorage.setItem(RECENT_EXPERTS_KEY, JSON.stringify(ids))
+  } catch {
+    // A full or unavailable storage only loses recency ordering, nothing else.
+  }
+}
+
+/**
+ * Required services. Both target slots are declared by other plugins whose
+ * activation order relative to this one is not constrained, so each
+ * registration waits on its slot through `slots.inject()`.
+ */
+export const inject = ['slots', 'connection', 'locale']
+
+/**
+ * Register the sign-in step, the sidebar account row, and the market overlay.
+ * @param ctx - client root context.
+ */
+export function apply(ctx: ClientContext): void {
+  const locale = ctx.get('locale') as LocaleRuntime
+  ctx.effect(() => locale.register(NS, { zh, en }), 'openlux-account: copy dictionaries')
+  ctx.effect(() => locale.register(MARKET_NS, { zh: marketZh, en: marketEn }), 'openlux-market: copy dictionaries')
+  ctx.effect(
+    () => locale.register(AUTOMATION_NS, { zh: automationZh, en: automationEn }),
+    'openlux-automation: copy dictionaries',
+  )
+  ctx.effect(() => locale.register(MEDIA_NS, { zh: mediaZh, en: mediaEn }), 'openlux-media: copy dictionaries')
+  ctx.effect(() => locale.register(FILES_NS, { zh: filesZh, en: filesEn }), 'openlux-files: copy dictionaries')
+  ctx.effect(
+    () => locale.register(SESSIONS_NS, { zh: sessionsZh, en: sessionsEn }),
+    'openlux-sessions: copy dictionaries',
+  )
+  const marketText = locale.bind(MARKET_NS)
+  const automationText = locale.bind(AUTOMATION_NS)
+  const sessionsText = locale.bind(SESSIONS_NS)
+  const filesText = locale.bind(FILES_NS)
+
+  const connection = ctx.get('connection') as ConnectionHandle
+  const callHost: AccountSectionInjected['callHost'] =
+    (method, args, signal) => callAccountHost(connection, method, args, signal)
+  const store = new AccountStore(callHost)
+  // One bound translate for every face; copy freshness rides the locale
+  // revision rather than a re-registration.
+  const t = locale.bind(NS) as SignInStepInjected['t']
+
+  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
+    name: 'settings.onboarding',
+    id: SIGN_IN_STEP_ID,
+    order: SIGN_IN_ORDER,
+    inject: (): SignInStepInjected => ({ callHost, t, store }),
+  }, SignInStep))
+
+  // The foot's bottom row: the kernel keeps the button and the click (it opens
+  // the settings panel), we replace what the row says. Priority is the kernel's
+  // own override knob for an occupied single slot; registering at its default 0
+  // would throw instead.
+  ctx.slots.inject('settings.trigger', () => ctx.slots.register({
+    name: 'settings.trigger',
+    priority: ACCOUNT_TRIGGER_PRIORITY,
+    locale: NS,
+    inject: (): AccountTriggerInjected => ({ t, store, hooks: { account: store } }),
+  }, AccountTrigger))
+
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: ACCOUNT_SECTION_ID,
+    order: ACCOUNT_SECTION_ORDER,
+    // A thunk rather than a string: the shell re-resolves nav labels on locale
+    // change instead of subscribing to it (`ui-settings-general`).
+    label: () => t('nav'),
+    locale: NS,
+    inject: (): AccountSectionInjected => ({ callHost, t, store, hooks: { account: store } }),
+  }, AccountSection))
+
+  // No `label`: the shell's nav filters label-less sections out (the
+  // HiddenPresetSection precedent below), so the token page has no nav row.
+  // Its only entry is the official card's "Manage" button on the models page
+  // (`openSection("openlux-token-section")`, settings-models patch); the shell
+  // resolves the active section against the full registry, so a label-less id
+  // still opens (settings-general patch, SettingsPanel).
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: TOKEN_SECTION_ID,
+    order: TOKEN_SECTION_ORDER,
+    inject: () => ({ callHost }),
+  }, TokenSection))
+
+  // Summoning needs the session and workspace services: the binding is filled
+  // while that scope lives, and the overlay simply offers install-only copy in
+  // a composition that lacks them.
+  //
+  // The kernel's creator-draft entry (`ui-agent-preset`) spreads its own such
+  // binding straight into the inject face, but it may: that face belongs to a
+  // settings row, first rendered when the user opens the panel, by which time
+  // the scope is long alive. An inject face is built ONCE per entry and cached
+  // (`cachedRootInject`, a WeakMap in ui-renderer), and this overlay is mounted
+  // with the shell — so the same spread here would freeze the boot moment,
+  // which has no binding yet, and the market would offer install-only copy for
+  // the rest of the run. Availability therefore rides an observable in the
+  // face's `hooks` compartment, the shape ui-workspace uses to say whether a
+  // flow is currently there (`DirectoryPickingInjected.hooks.directoryFlow`).
+  let summon: ((request: SummonRequest) => void) | undefined
+  const summonWatchers = new Set<() => void>()
+  const summonReady = {
+    getSnapshot: () => summon !== undefined,
+    subscribe: (fn: () => void) => {
+      summonWatchers.add(fn)
+      return () => { summonWatchers.delete(fn) }
+    },
+  }
+
+  /** Publish one binding change, so a mounted overlay re-reads the copy it owes. */
+  const bindSummon = (next: ((request: SummonRequest) => void) | undefined): void => {
+    summon = next
+    for (const notify of [...summonWatchers]) notify()
+  }
+
+  // The composer notice strip, reached the same way and for the same reason:
+  // `sessions` is not in this plugin's own inject list, so touching `ctx.sessions`
+  // outside a scope that has it throws. Left unfilled, a refusal still reaches
+  // the button's own label — the strip is the louder of the two, not the only one.
+  let notice: ((sessionId: SessionId, level: 'info' | 'error', text: string) => void) | undefined
+
+  // The chip verb rides along on the same scope, because it is the same face:
+  // an attachment shows up as one inline reference over the draft rather than a
+  // path in prose (`file-reference.ts`). Unfilled, the button writes the path
+  // as it always did — which is also what a failed CAS falls back to, so the
+  // two paths are the same code either way.
+  let attach: ((sessionId: SessionId, path: string) => boolean) | undefined
+
+  // The automation form captures the CURRENT session when Save is pressed.
+  // Like the market's summon capability, this must be an observable rather
+  // than a member conditionally copied into the cached overlay inject face.
+  let automationSource: AutomationSourceSession | undefined
+  let openAutomationResult: ((sessionId: string) => Promise<void>) | undefined
+  const automationSourceWatchers = new Set<() => void>()
+  const automationSourceFeed: HostObservable<AutomationSourceSession | undefined> = {
+    getSnapshot: () => automationSource,
+    subscribe: (notify) => {
+      automationSourceWatchers.add(notify)
+      return () => { automationSourceWatchers.delete(notify) }
+    },
+  }
+  const publishAutomationSource = (next: AutomationSourceSession | undefined): void => {
+    if (automationSource?.id === next?.id
+      && automationSource?.title === next?.title
+      && automationSource?.cwd === next?.cwd) return
+    automationSource = next
+    for (const notify of [...automationSourceWatchers]) notify()
+  }
+
+  // «最近召唤» for the automation editor's expert menu: a persisted summon
+  // history, which is WorkBuddy's shape exactly (`addExpertToHistory` on each
+  // summon, `getRecentExperts` at editor-open, a shared key across surfaces).
+  // Deriving it from session summaries instead does NOT survive a restart:
+  // `agentPresets.select` records the preset as an `agent-preset/selected`
+  // session EVENT, and the kernel's cold-session list baseline projects the
+  // header only (`sessionListFields(meta)` with no events), so every summoned
+  // session loses its `agentPreset` in the list after the app restarts.
+  let recentExperts: readonly string[] = readRecentExperts()
+  const recentExpertWatchers = new Set<() => void>()
+  const recentExpertsFeed: HostObservable<readonly string[]> = {
+    getSnapshot: () => recentExperts,
+    subscribe: (notify) => {
+      recentExpertWatchers.add(notify)
+      return () => { recentExpertWatchers.delete(notify) }
+    },
+  }
+  const recordExpertSummon = (agentPreset: string): void => {
+    if (agentPreset === '') return
+    const next = [agentPreset, ...recentExperts.filter(id => id !== agentPreset)]
+      .slice(0, RECENT_EXPERTS_CAP)
+    if (next.length === recentExperts.length
+      && next.every((id, index) => id === recentExperts[index])) return
+    recentExperts = next
+    writeRecentExperts(next)
+    for (const notify of [...recentExpertWatchers]) notify()
+  }
+
+  // Every preset selection funnels through one broadcast — the market summon,
+  // the hero chip, and any other caller of `agentPresets.select` all land here
+  // (`API_REMOTE_FORWARDED_EVENTS` includes it). System presets recorded along
+  // the way are harmless: the editor intersects this list with the host's
+  // user-trust experts before showing anything.
+  ctx.inject(['remote'], (scope: ClientContext) => {
+    scope.effect(() => {
+      const remote = scope.get('remote') as RemoteSummonEvents | undefined
+      if (remote === undefined) return () => {}
+      return remote.$on('agent-preset/selected', (_sessionId, agentPreset) => {
+        recordExpertSummon(agentPreset)
+      })
+    }, 'openlux-automation: recent summons')
+  })
+
+  ctx.inject(['sessions'], (scope: ClientContext) => {
+    scope.effect(() => {
+      notice = (sessionId, level, text) => { composerFor(scope, sessionId)?.notify(level, text) }
+      attach = (sessionId, path) => appendFileReference(composerFor(scope, sessionId), path)
+      const publishCurrent = (): void => {
+        const state = scope.sessions.list.getSnapshot()
+        const current = state.current === undefined ? undefined : state.byId[state.current]
+        publishAutomationSource(current === undefined
+          ? undefined
+          : {
+            id: String(current.id),
+            title: current.displayTitle,
+            ...(current.cwd === undefined ? {} : { cwd: current.cwd }),
+          })
+      }
+      const stopSource = scope.sessions.list.subscribe(publishCurrent)
+      publishCurrent()
+      openAutomationResult = async (sessionId: string): Promise<void> => {
+        const id = sessionId as SessionId
+        if (scope.sessions.list.getSnapshot().byId[id] === undefined) {
+          throw new Error('结果会话暂未同步，请稍后重试')
+        }
+        scope.sessions.open(id)
+      }
+      return () => {
+        notice = undefined
+        attach = undefined
+        openAutomationResult = undefined
+        stopSource()
+        publishAutomationSource(undefined)
+      }
+    }, 'openlux-files: composer notices')
+  })
+
+  // Serialization owner for those chips: at submit time each occurrence's range
+  // is replaced by *its own source's* model form, and an occurrence whose source
+  // is not registered blocks the send instead of degrading
+  // (`ui-input-trigger`'s `serializeReference`). So this registration is not
+  // decoration — it is what turns `@deck_342.pptx` back into the quoted
+  // mention carrying the absolute path the model can open.
+  ctx.inject(['inputTriggers'], (scope: ClientContext) => {
+    scope.effect(() => scope.inputTriggers.registerSource(fileReferenceSource), 'openlux-files: file reference source')
+    // Supplementary `/` roll so skills installed this run decorate as chips —
+    // the kernel's per-session skill catalog is never invalidated by an
+    // install (`skill-lexicon.ts` traces its two invalidation wires).
+    scope.effect(() => scope.inputTriggers.registerSource(skillLexiconSource), 'openlux-account: skill lexicon')
+  })
+
+  // And the pill they are drawn as. Attribute selectors over the mirror layer,
+  // which is all that layer can carry (`file-chip-style.ts` measures why).
+  ctx.effect(() => installFileChipStyle(), 'openlux-files: file chip style')
+
+  // Sent bubbles: text segments around a reference chip flow inline instead of
+  // stacking one block per segment (`bubble-ref-style.ts` traces the kernel's
+  // block-div rendering this corrects).
+  ctx.effect(() => installBubbleRefStyle(), 'openlux-account: bubble ref style')
+
+  // The rail's pictures, reached the same way: `conversation` is the root
+  // singleton that owns the draft-image registry, and the input state carries
+  // only ids. Left unfilled, the button simply never re-routes a rail — the
+  // kernel's send-time refusal is then what the user gets, as before.
+  let rail: DraftImageFace | undefined
+
+  ctx.inject(['conversation'], (scope: ClientContext) => {
+    scope.effect(() => {
+      rail = scope.get('conversation') as unknown as DraftImageFace
+      return () => { rail = undefined }
+    }, 'openlux-files: rail pictures')
+  })
+
+  // The row-menu delete request: published by the window hook the kernel patch
+  // reads, consumed by the confirm-card overlay. One pending request at a time.
+  let deleteRequest: SessionDeleteRequest | undefined
+  const deleteRequestWatchers = new Set<() => void>()
+  const deleteRequestFeed: HostObservable<SessionDeleteRequest | undefined> = {
+    getSnapshot: () => deleteRequest,
+    subscribe: (notify) => {
+      deleteRequestWatchers.add(notify)
+      return () => { deleteRequestWatchers.delete(notify) }
+    },
+  }
+  const publishDeleteRequest = (next: SessionDeleteRequest | undefined): void => {
+    deleteRequest = next
+    for (const notify of [...deleteRequestWatchers]) notify()
+  }
+
+  // Deleting the CURRENT session first clears the selection (blank view), so
+  // the conversation pane stops touching the session the host is disposing.
+  let releaseCurrentSession: ((id: string) => void) | undefined
+  ctx.inject(['sessions'], (scope: ClientContext) => {
+    scope.effect(() => {
+      releaseCurrentSession = (id: string) => {
+        const state = scope.sessions.list.getSnapshot()
+        if (String(state.current) === id) scope.sessions.clear()
+      }
+      return () => { releaseCurrentSession = undefined }
+    }, 'openlux-sessions: release current before delete')
+  })
+
+  ctx.effect(() => {
+    const face: NonNullable<Window['__openluxSessionActions']> = {
+      // A getter so the menu label follows live locale switches.
+      get deleteLabel() { return sessionsText('remove') },
+      requestDelete: (sessionId: string, title: string) => {
+        publishDeleteRequest({ id: sessionId, title })
+      },
+    }
+    window.__openluxSessionActions = face
+    return () => {
+      if (window.__openluxSessionActions === face) delete window.__openluxSessionActions
+      publishDeleteRequest(undefined)
+    }
+  }, 'openlux-sessions: row menu hook')
+
+  ctx.effect(() => {
+    const face: NonNullable<Window['__openluxModelCatalog']> = {
+      get label() { return t('fetchModels') },
+      requestFetch: () => {
+        window.__openluxPendingFetch = true
+        window.__openluxOpenSection?.('models')
+        window.dispatchEvent(new CustomEvent('openlux:fetch-available-models'))
+      },
+    }
+    window.__openluxModelCatalog = face
+    return () => {
+      if (window.__openluxModelCatalog === face) delete window.__openluxModelCatalog
+      delete window.__openluxPendingFetch
+    }
+  }, 'openlux-account: model catalog picker footer')
+
+  ctx.effect(() => {
+    const face: NonNullable<Window['__openluxComposerAdd']> = {
+      get label() { return filesText('addMenu') },
+      open: openComposerAdd,
+    }
+    window.__openluxComposerAdd = face
+    return () => {
+      if (window.__openluxComposerAdd === face) delete window.__openluxComposerAdd
+    }
+  }, 'openlux-files: composer + menu hook')
+
+  ctx.effect(() => {
+    /**
+     * Display names for context-injection producers (see the Window field's
+     * doc). Only the runtime-context snapshot writer is mapped today; the
+     * label is the brand, not a translation, so it is locale-independent.
+     */
+    const labels: NonNullable<Window['__openluxProducerLabels']> = {
+      '@deepseek-ai/dsh-system-prompt': 'OpenLux',
+      // 做同款的参考注入行(`market/case-reference.ts` 的 CASE_REFERENCE_PRODUCER)。
+      // 会话里整行隐藏(见下方 hidden),此标签只服务于轨迹页等其余入口。
+      'openlux-case-reference': '参考案例',
+    }
+    window.__openluxProducerLabels = labels
+    /**
+     * 会话里不渲染参考指令行:内容是给模型的绝对路径与阅读规程,对用户是纯管道
+     * 噪音(2026-08-29 拍板)。注入本身照常进上下文,轨迹页保留可见作排查窗口。
+     */
+    const hidden: NonNullable<Window['__openluxProducerHidden']> = ['openlux-case-reference']
+    window.__openluxProducerHidden = hidden
+    return () => {
+      if (window.__openluxProducerLabels === labels) delete window.__openluxProducerLabels
+      if (window.__openluxProducerHidden === hidden) delete window.__openluxProducerHidden
+    }
+  }, 'openlux-account: context producer labels')
+
+  ctx.inject(['sessions', 'workspaces'], (scope: ClientContext) => {
+    // 做同款落地后把 (案例, 会话) 交给宿主:落盘参考文件并注入阅读指令。
+    // 普通召唤落地则反向撤文件——复用的空白会话可能残留上一次做同款的指令,
+    // 删文件让它落进自愈条款。两个方向的结果都被有意忽略:失败即静默降级
+    // (无参考召唤 / 残文件等 TTL 清扫),召唤本身永远照常。
+    const controller = new SummonController(scope, (playbookId, sessionId) => {
+      void callHost('market.caseReferenceAttach', { id: playbookId, sessionId })
+    }, (sessionId) => {
+      void callHost('market.caseReferenceDetach', { sessionId })
+    })
+    scope.effect(() => {
+      // The pick may predate the session that takes it: the workspace connect
+      // either creates a blank session or reuses one, and nothing hands back
+      // its id — so the request is applied by whoever sees the list change.
+      const stop = scope.sessions.list.subscribe(() => { void controller.apply() })
+      bindSummon((request: SummonRequest) => { controller.summon(request) })
+      return () => {
+        bindSummon(undefined)
+        stop()
+      }
+    }, 'openlux-market: summon flow')
+  })
+
+  // The card's pictures are read over this plugin's own channel rather than the
+  // session's, so the row needs nothing beyond the connection every other face
+  // here already uses.
+  const images = createImageLoaders(connection)
+  ctx.effect(() => () => { images.dispose() }, 'openlux-media: image URLs')
+  ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+    name: 'tool.call.toolview',
+    key: IMAGE_TOOL_NAME,
+    locale: MEDIA_NS,
+    inject: (): ImageCardInjected => ({ load: images.load, kind: 'generate' }),
+  }, ImageToolCard))
+
+  // The second name gets the same row: a shown picture and a generated one are
+  // the same thing to a reader, and the slot is keyed by wire tool name, so
+  // without this registration `image_show` would fall back to the generic row
+  // and print its attachment references as JSON.
+  ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+    name: 'tool.call.toolview',
+    key: IMAGE_SHOW_TOOL_NAME,
+    locale: MEDIA_NS,
+    inject: (): ImageCardInjected => ({ load: images.load, kind: 'show' }),
+  }, ImageToolCard))
+
+  // The composer's `+` menu and file intake. The seat renders no chrome of its
+  // own — the entry is the kernel's `+`, handed over by the hook above — but it
+  // mounts once per live composer, which is what the menu, the hidden picker,
+  // and the drop/paste listeners need.
+  ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+    name: 'conversation.input.left',
+    id: ATTACH_FILE_ID,
+    order: ATTACH_FILE_ORDER,
+    locale: FILES_NS,
+    // A strict session slot's inject receives the framework-resolved session id,
+    // which is what routes a refusal to the composer the user is looking at.
+    inject: (sessionId): AttachFileInjected => ({
+      callHost,
+      notify: (level, text) => { notice?.(sessionId, level, text) },
+      reference: path => attach?.(sessionId, path) ?? false,
+      selection: () => modelChoice(ctx, sessionId),
+      watchSelection: listener => watchModelChoice(ctx, sessionId, listener),
+      railImages: ids => rail?.draftImages(ids) ?? [],
+      releaseRailImage: (id) => { rail?.releaseDraftImage(id) },
+      bindAddMenu: open => bindComposerAdd(String(sessionId), open),
+    }),
+  }, AttachFileButton))
+
+  // The hero's preset seat. The kernel's own occupant is a dropdown of every
+  // composition the deployment has, which puts `标准模式` / `PTC模式` /
+  // `创造模式` in front of the user as if they were a question; those three are
+  // how this product is assembled. So this registration takes the seat at a
+  // lower priority — the kernel's documented override knob for an occupied
+  // single slot, the same one the account row uses — and draws WorkBuddy's
+  // shape instead: nothing at all on the default, one dismissible chip when a
+  // summoned expert is running (`PresetChip.tsx` cites both sides).
+  const roster = new PresetRoster(connection)
+
+  // The roster's default can move under us — writing it is a settings write, not
+  // a preset call, so nothing in the roster RPC reports it. The chip's whole rule
+  // is «say nothing on the default», so a stale default makes it name a preset
+  // the user is already on. The kernel's own seat solves this by listening to the
+  // host's settings broadcast for exactly this namespace, and this is that same
+  // subscription (`ui-agent-preset`: `remote.$on('settings/document-updated')`
+  // filtered to `agent-presets`, then `seat.load()`).
+  ctx.inject(['remote'], (scope: ClientContext) => {
+    scope.effect(
+      () => scope.remote.$on('settings/document-updated', ns => {
+        if (ns !== PRESET_SETTINGS_NS) return
+        void roster.load()
+      }),
+      'openlux-market: roster follows the default',
+    )
+  })
+
+  ctx.slots.inject('conversation.hero.agentPreset', () => ctx.slots.register({
+    name: 'conversation.hero.agentPreset',
+    priority: PRESET_CHIP_PRIORITY,
+    locale: MARKET_NS,
+    inject: (): PresetChipInjected => ({
+      hooks: { presetRoster: roster },
+      read: () => { void roster.load() },
+      clear: (sessionId) => { void backToDefault(sessionId) },
+    }),
+  }, PresetChip))
+
+  /**
+   * Take one session off its expert and back onto the default composition.
+   * @param sessionId - the session the chip was drawn for.
+   * @returns once the switch settled, or its refusal reached the composer.
+   */
+  async function backToDefault(sessionId: SessionId): Promise<void> {
+    const refused = await roster.clear(sessionId)
+    // The kernel refuses a session that has already run a turn. The chip only
+    // exists on the new-session screen, so this is a race (a turn started while
+    // the pointer was travelling) rather than a shape the user can aim at.
+    if (refused !== undefined) notice?.(sessionId, 'error', refused)
+  }
+
+  const automationView = createAutomationViewStore()
+  const marketView = createMarketViewStore()
+  // The two settings seats that exposed Agent presets, taken and left blank —
+  // no page, no nav row, no way to change the default. `HiddenPresetSeats.tsx`
+  // carries the reasoning; publishing no `label` is what keeps the nav quiet.
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: PRESET_SECTION_ID,
+    order: PRESET_SECTION_ORDER,
+    priority: PRESET_SECTION_PRIORITY,
+  }, HiddenPresetSection))
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: PRESET_ROW_ID,
+    order: PRESET_ROW_ORDER,
+    priority: PRESET_ROW_PRIORITY,
+  }, HiddenPresetRow))
+  // Kernel Session log download in the session header. WorkBuddy has no such
+  // control; occupy the shipped cell and paint nothing. `HiddenSessionLogDownload.tsx`
+  // carries the reasoning. `/export` is left on the command plane.
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+    name: 'conversation.session.header.utilities',
+    id: SESSION_LOG_DOWNLOAD_ID,
+    priority: SESSION_LOG_DOWNLOAD_PRIORITY,
+  }, HiddenSessionLogDownload))
+
+  // One face for the overlay's whole life: the request is forwarded through the
+  // live binding rather than captured, and `summonReady` tells the component
+  // which of the two wordings it owes at this moment.
+  const marketFace = (): MarketOverlayInjected => ({
+    callHost,
+    language: () => (locale.getSnapshot().active === 'en' ? 'en' : 'zh'),
+    summon: (request: SummonRequest) => { summon?.(request) },
+    hooks: { summonReady },
+  })
+
+  const automationFace = (): AutomationOverlayInjected => ({
+    callHost,
+    openResult: async (sessionId) => {
+      if (openAutomationResult === undefined) throw new Error('会话服务尚未就绪')
+      await openAutomationResult(sessionId)
+    },
+    // Saving an automation with an expert counts as a summon too — WorkBuddy
+    // records its automation payload's `selectedExpert` into the same shared
+    // history the session summon writes.
+    noteExpertSummon: recordExpertSummon,
+    hooks: {
+      automationSource: automationSourceFeed,
+      recentExperts: recentExpertsFeed,
+    },
+  })
+
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: AUTOMATION_LAUNCHER_ID,
+    order: AUTOMATION_LAUNCHER_ORDER,
+    label: () => automationText('nav'),
+    locale: AUTOMATION_NS,
+    store: automationView,
+  }, AutomationLauncher))
+
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: MARKET_LAUNCHER_ID,
+    order: MARKET_LAUNCHER_ORDER,
+    label: () => marketText('nav'),
+    locale: MARKET_NS,
+    store: marketView,
+  }, MarketLauncher))
+
+  // The foot is a single nowrap row upstream, and the cordis dock joins it
+  // whenever a session registers a plugin — which an authoring session does.
+  ctx.effect(() => installFooterRowStyle(), 'openlux-market: footer row')
+
+  // The card's hover-revealed summon seat: two rules a `style` object cannot
+  // carry (the card's own `:hover`, and the gradient under the seat).
+  ctx.effect(() => installMarketCardStyle(), 'openlux-market: card seat')
+  ctx.effect(() => installMarketDialogStyle(), 'openlux-market: expert dialog')
+
+  // Automation context chips: hover/focus/disabled states inline styles can't express.
+  ctx.effect(() => installAutomationChipStyle(), 'openlux-automation: context chips')
+
+  // Account page: refresh-spin keyframes and icon-button hover states.
+  ctx.effect(() => installAccountStyle(), 'openlux-account: page motion')
+
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: AUTOMATION_OVERLAY_ID,
+    order: AUTOMATION_OVERLAY_ORDER,
+    locale: AUTOMATION_NS,
+    store: automationView,
+    inject: automationFace,
+  }, AutomationOverlay))
+
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: SESSION_DELETE_CONFIRM_ID,
+    order: SESSION_DELETE_CONFIRM_ORDER,
+    locale: SESSIONS_NS,
+    inject: (): SessionDeleteConfirmInjected => ({
+      callHost,
+      dismiss: () => publishDeleteRequest(undefined),
+      releaseCurrent: (sessionId: string) => { releaseCurrentSession?.(sessionId) },
+      hooks: { deleteRequest: deleteRequestFeed },
+    }),
+  }, SessionDeleteConfirm))
+
+  // The one-time «登录已失效» dialog, watching the same shared store the row
+  // and the account page read (`LoginExpiredDialog.tsx` cites the WorkBuddy
+  // detector + dialog pair this mirrors).
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: LOGIN_EXPIRED_ID,
+    order: LOGIN_EXPIRED_ORDER,
+    locale: NS,
+    inject: (): LoginExpiredInjected => ({ callHost, t, store, hooks: { account: store } }),
+  }, LoginExpiredDialog))
+
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay',
+    id: MARKET_OVERLAY_ID,
+    order: MARKET_OVERLAY_ORDER,
+    locale: MARKET_NS,
+    store: marketView,
+    inject: marketFace,
+  }, MarketOverlay))
+
+  // The composer's connector entry, in the left tool row: the icon of a
+  // connected connector, opening the market's connector tab. WorkBuddy shows
+  // the same fact in the same seat (its connector capsule); the management
+  // acts it reaches differ only in chrome (`ConnectorCapsule.tsx`). No store
+  // here on purpose: this slot is session-scoped and `marketView` is already
+  // mounted under root seats — the kernel allows one scope per handle, and
+  // taking it here refused the whole plugin at load. The capsule asks through
+  // `market-open-request.ts` instead, and the overlay answers.
+  ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+    name: 'conversation.input.left',
+    id: CONNECTOR_CAPSULE_ID,
+    order: CONNECTOR_CAPSULE_ORDER,
+    locale: MARKET_NS,
+    inject: (): ConnectorCapsuleInjected => ({
+      callHost,
+      language: () => (locale.getSnapshot().active === 'en' ? 'en' : 'zh'),
+    }),
+  }, ConnectorCapsule))
+
+  // The blank-composer home content (`HomeContent.tsx`: scene chips and
+  // starter prompts above the input, featured cases below) is deliberately
+  // *not* registered: the home page's product design is not settled
+  // (2026-08-28 拍板,先摘下等设计), so the module and its host half stay
+  // shipped but parked. Wiring it back is one register per seat on
+  // `conversation.input.dock`, with a shared `HomeContentStore(callHost)`
+  // passed through `hooks` to both — the `PresetRoster` pattern.
+}

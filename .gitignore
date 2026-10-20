@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+
+# build output (regenerate with `pnpm run build`)
+lib/
+
+# typescript build info
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# secrets — this package talks to an API gateway with a bearer token
+.env
+.env.*
+!.env.example
