@@ -623,7 +623,7 @@ export function apply(ctx: ClientContext): void {
      * label is the brand, not a translation, so it is locale-independent.
      */
     const labels: NonNullable<Window['__openluxProducerLabels']> = {
-      '@deepseek-ai/dsh-system-prompt': 'OpenLux',
+      '@deepseek-ai/dsh-system-prompt': 'EchoFlow',
       // 做同款的参考注入行(`market/case-reference.ts` 的 CASE_REFERENCE_PRODUCER)。
       // 会话里整行隐藏(见下方 hidden),此标签只服务于轨迹页等其余入口。
       'openlux-case-reference': '参考案例',

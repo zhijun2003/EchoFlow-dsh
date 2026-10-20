@@ -16,7 +16,7 @@ const BRAND_JSON_ROUTE = '/openlux/brand.json'
 export const CHANNEL_MARK_ROUTE = '/openlux/brand-mark.png'
 
 /** Main-station name, matching `WINDOW_TITLE` in `dsh-plugin-desktop/src/brand.ts`. */
-export const DEFAULT_BRAND_NAME = 'OpenLux'
+export const DEFAULT_BRAND_NAME = 'EchoFlow'
 
 let channelName: string | undefined
 let channelNameFetch: Promise<string | undefined> | undefined
