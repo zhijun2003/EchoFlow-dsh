@@ -84,6 +84,19 @@ Use B if you are iterating; use A if you want the install to survive a
 
 ## Mounting as a bundle
 
+### Do NOT combine a bundle patch with a manual insert
+
+The package ships its own `cordis.patch.yml` (declared via
+`dsh.bundle.patch`), which already `insert:`s the plugin. Adding the same
+plugin again by appending a row to the profile's patch file loads it twice
+and fails with `duplicate loader entry id` — the tutorial's pitfall #6.
+Pick one:
+
+- **Bundle route (recommended):** `dsh plugin add` installs the package and
+  composes it from the package's own patch. Do not add a manual row.
+- **Manual route:** install the tarball, add the package to
+  `dsh.profile.bundles`, and add the row yourself. Do not do both.
+
 `cordis.patch.yml` cannot introduce a plugin from nothing — it can only
 reconfigure or disable rows, or `insert:` a row naming an already-resolvable
 package. So the package must be listed in `dsh.profile.bundles`:
@@ -151,3 +164,19 @@ from the flat fallback. Note that `cordis-plugin-loader@1.0.6` and
 
 pnpm does not need the flag; it installs the same tarball with only a
 warning about those two peers.
+
+
+## Verifying the install before you start dsh
+
+The tutorial's pitfall #5: confirm the plugin actually entered the plugin
+tree before launching. Use the dump-config step — search its output for
+`echoflow-account` and `echoflowai-tools`:
+
+```powershell
+npx @deepseek-ai/dsh --profile desktop --dump-config | Select-String echoflow
+```
+
+If nothing matches, the bundle was not composed — most often because
+`dsh.bundle.patch` is missing from package.json (the package then stays a
+plain npm dependency) or because the plugin was inserted twice
+(`duplicate loader entry id`).

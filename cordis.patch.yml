@@ -1,0 +1,26 @@
+# This plugin's own bundle patch.
+#
+# Declared to dsh by package.json's `dsh.bundle.patch`, so `dsh plugin add`
+# installs the package as a Bundle layer rather than leaving it as a plain
+# npm dependency. Without that declaration the code is present but nothing
+# composes it.
+#
+# `insert` adds this plugin to the tree. The id is what cordis composes
+# against; the name is the package, resolved by Node's normal rules from the
+# profile's node_modules.
+
+- insert:
+    - id: echoflow-account
+      name: echoflowai-tools
+      config:
+        # The station base URL. Everything else in the plugin — sign-in,
+        # tokens, balance, model pool, market, media, web search — derives
+        # from it at runtime, so this is the one knob worth carrying here.
+        #
+        # A literal, not `!!js`: the plugin already reads OPENLUX_BASE_URL as
+        # its own default (src/index.ts DEFAULT_BASE_URL) and strips trailing
+        # slashes itself (src/account/http.ts normalizeBase), so a local relay
+        # is configured by dropping this config and exporting the variable —
+        # which also keeps one source of truth for both the chat route and the
+        # account route.
+        baseUrl: https://api.echoflowai.cc
