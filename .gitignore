@@ -22,3 +22,6 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+
+# built tarball (rebuild with ./build-tarball.sh)
+dist/
