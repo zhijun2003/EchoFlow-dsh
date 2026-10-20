@@ -1,0 +1,21 @@
+# Mount echoflowai-tools into a dsh profile.
+#
+# APPEND this to <profile>/cordis.patch.yml (do not replace the file — it
+# already carries your own rows). The package must also be listed in the
+# profile's `dsh.profile.bundles`; a patch row alone cannot introduce a
+# plugin that is not resolvable. See MOUNTING.md.
+#
+# Only the station base URL is carried here. Everything else in the plugin —
+# sign-in, tokens, balance, model pool, market, media, web search — derives
+# from it at runtime, so this is the single knob worth patching.
+#
+# A literal, not `!!js`: the plugin reads OPENLUX_BASE_URL itself as its
+# default when this row is absent (src/index.ts DEFAULT_BASE_URL), so a
+# literal here is only the documented production value. To run against a
+# local relay, drop this row and export OPENLUX_BASE_URL instead — that also
+# keeps one source of truth for both the chat route and the account route.
+
+- id: echoflow-account
+  name: echoflowai-tools
+  config:
+    baseUrl: https://api.echoflowai.cc
