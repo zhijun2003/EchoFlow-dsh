@@ -4,47 +4,46 @@
 # why the flat fallback must not be edited.
 
 param(
-    # Where the plugin's package.json is, as WINDOWS sees it. The repo lives
-    # in the WSL filesystem, so from Windows this is the UNC path.
-    [string]$PluginDir = "/home/zhijun/WorkSpace/dsh/openlux-plugin-account",
-
     [string]$ProfileDir = "$env:USERPROFILE\.dsh\profiles\desktop"
 )
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "plugin : $PluginDir"
 Write-Host "profile: $ProfileDir"
 
-if (-not (Test-Path "$PluginDir\package.json")) {
-    throw "No package.json under $PluginDir. From Windows the WSL path is /home/zhijun/..."
-}
 if (-not (Test-Path "$ProfileDir\package.json")) {
     throw "No package.json under $ProfileDir - not a dsh profile?"
 }
 
-# 1. Place the package where Node finds it BEFORE the flat fallback.
-#    A symlink keeps edits live; a `pnpm add file:` copies and needs a
-#    reinstall per change. Default to the live link.
-$link = Join-Path $ProfileDir "node_modules\echoflowai-tools"
-if (Test-Path $link) {
-    $item = Get-Item $link -Force
-    if ($item.LinkType -eq "SymbolicLink" -or $item.LinkType -eq "Junction") {
-        Write-Host "==> link already present -> $($item.Target)"
-    } else {
-        throw "$link exists and is not a link. Remove it first (a real directory here shadows the flat fallback silently)."
-    }
-} else {
-    Write-Host "==> creating symlink $link"
-    New-Item -ItemType SymbolicLink -Path $link -Target $PluginDir | Out-Null
+# 1. Install the tarball into the profile. A tarball is a plain file, so
+#    copying it out of the WSL filesystem is reliable - unlike a symlink
+#    whose target is a WSL UNC path, which Windows Node may
+#    or may not follow (unverified).
+#
+#    --legacy-peer-deps is REQUIRED: the package declares 41 peerDependencies
+#    and npm 11 exits 1 with an empty error block when it resolves them from
+#    a tarball. See MOUNTING.md "Installing the tarball with npm".
+$tarball = Join-Path $PSScriptRoot "dist\echoflowai-tools-0.1.0.tgz"
+if (-not (Test-Path $tarball)) {
+    throw "No tarball at $tarball. Build it first: ./build-tarball.sh"
 }
 
-# Prove Windows can actually read through it before touching the composition.
-$entry = Join-Path $link "lib\index.js"
-if (-not (Test-Path $entry)) {
-    throw "Link created but $entry is not readable through it. Windows Node will not follow this target either - try a checkout on C: instead."
+Push-Location $ProfileDir
+try {
+    Write-Host "==> npm install tarball (--legacy-peer-deps)"
+    npm install $tarball --legacy-peer-deps --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+
+    # Prove it before touching the composition.
+    $entry = Join-Path $ProfileDir "node_modules\echoflowai-tools\lib\index.js"
+    if (-not (Test-Path $entry)) {
+        throw "Installed but $entry is missing - the tarball is incomplete?"
+    }
+    Write-Host "    installed: $entry"
 }
-Write-Host "    readable: $entry"
+finally {
+    Pop-Location
+}
 
 # 2. Mount as a bundle. A patch row cannot introduce a plugin from nothing.
 $manifestPath = Join-Path $ProfileDir "package.json"
@@ -71,6 +70,6 @@ Write-Host ""
 Write-Host "Done. Restart dsh."
 Write-Host ""
 Write-Host "Revert:"
-Write-Host "  Remove-Item -Force '$link'"
+Write-Host "  npm uninstall echoflowai-tools   # in $ProfileDir"
 Write-Host "  drop 'echoflowai-tools' from dsh.profile.bundles in package.json"
 Write-Host "  drop the echoflow-account row from cordis.patch.yml"

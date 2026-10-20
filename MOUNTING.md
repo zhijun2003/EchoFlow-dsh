@@ -125,3 +125,29 @@ something this fork introduced.
   entry.
 
 The flat fallback is untouched by either, so OpenLux Desktop keeps working.
+
+## Installing the tarball with npm
+
+`npm pack` output installs, but not with npm's default peer resolution:
+
+```
+npm install echoflowai-tools-0.1.0.tgz     # FAILS, and prints no reason
+npm install echoflowai-tools-0.1.0.tgz --legacy-peer-deps   # works
+```
+
+Verified on npm 11.17.0 / node 24.19.0. The failure is silent on purpose
+of nothing — npm resolves the tarball as a `file:` spec, hits the 41
+peerDependencies, and exits 1 with an **empty** error block. The debug log
+(`~/.npm/_logs/`) shows it dying mid-resolution right after placing
+`@deepseek-ai/cosmokit`, with no `ERESOLVE` line at all. That is an npm
+output defect, not a broken package: the same tarball installs fine from a
+plain directory (`npm install <dir>`), which takes a different code path.
+
+`--legacy-peer-deps` is the right flag here rather than a workaround: the
+peer set is upstream's own declaration, and the running dsh satisfies it
+from the flat fallback. Note that `cordis-plugin-loader@1.0.6` and
+`cordis-plugin-include@1.0.10` ask for `@deepseek-ai/cordis@~4.0.5` while
+4.0.1 is installed — that mismatch is upstream's, not this fork's.
+
+pnpm does not need the flag; it installs the same tarball with only a
+warning about those two peers.
