@@ -93,12 +93,20 @@ const FAILED = new Set(['failed', 'expired', 'cancelled', 'canceled'])
 // answers unknown `/desktop/v1/*` paths with its frontend HTML (HTTP 200), not
 // a 404, so a 200 alone does not prove a route exists — check the body is JSON.
 //
-// The upstream default (`imageproxy.zhongzhuan.chat`) no longer resolves as of
-// 2026-10-20, and `api.echoflowai.cc` serves no equivalent route: probing
-// `/api/upload`, `/desktop/v1/image-host/upload`, `/desktop/v1/imagehost/upload`
-// and `/api/desktop/image-host` returns either the frontend HTML or a 404. Only
-// doubao first-frame video uploads use this host; every other image path goes
-// through the station's own `/v1`.
+// Kept as the default: the host is up and the route answers from the intended
+// network (Windows: GET /api/upload -> 404 page not found, i.e. the server is
+// there and the route is POST-only, as designed). DNS resolves from the Windows
+// side; it does NOT resolve from an unrelated network, so a failed upload here
+// means the machine cannot reach the host, not that the host is gone.
+//
+// `api.echoflowai.cc` serves no equivalent route — probing `/api/upload`,
+// `/desktop/v1/image-host/upload`, `/desktop/v1/imagehost/upload` and
+// `/api/desktop/image-host` returns either the frontend HTML (HTTP 200, this
+// gateway does not 404 unknown `/desktop/v1/*` paths) or a 404. So overriding
+// this with a station-local path needs a real multipart host behind it.
+//
+// Scope: only doubao first-frame video uploads use this host. Every other image
+// path goes through the station's own `/v1`.
 const IMAGE_HOST_UPLOAD_URL =
   process.env.ECHOFLOW_IMAGE_HOST_UPLOAD_URL ?? 'https://imageproxy.zhongzhuan.chat/api/upload'
 
