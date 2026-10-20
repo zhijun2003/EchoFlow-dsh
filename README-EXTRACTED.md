@@ -1,4 +1,4 @@
-# openlux-plugin-account
+# echoflowai-tools
 
 DeepSeek Harness (DSH) 插件包，来自 OpenLux Desktop 1.0.6（`api.echoflowai.cc` 分发的安装包）。
 
@@ -44,12 +44,12 @@ peerDependencies 列出了 44 个 `@deepseek-ai/*` 包（cordis、dsh-agent、ds
 
    ```yaml
    - id: openlux-account
-     name: openlux-plugin-account
+     name: echoflowai-tools
    ```
 
    app-boot 会把依赖闭包里的包软链到 `$DSH_HOME/profiles/node_modules`，Node 从 profile 向上走时能找到。
 
-2. 它自带 Web 客户端部分，`package.json` 的 `dsh.client.inject` 声明了注入的官方客户端模块，`tsdown.config.ts` 的 client 那一路会以 `openlux-plugin-account` 为 id 注册到 shell 的模块加载器。
+2. 它自带 Web 客户端部分，`package.json` 的 `dsh.client.inject` 声明了注入的官方客户端模块，`tsdown.config.ts` 的 client 那一路会以 `echoflowai-tools` 为 id 注册到 shell 的模块加载器。
 
 3. **去掉 OpenLux 依赖需要改的地方**：所有 `src/account/http.ts` / `token-wire.ts` / `models/sync.ts` 里的请求都指向 `https://api.openlux.ai`（或 `process.env.OPENLUX_BASE_URL`）。要做成独立的，把这一层换成自己的服务即可；媒体生成和市场那两层相对独立，可以只保留你想要的部分。
 
