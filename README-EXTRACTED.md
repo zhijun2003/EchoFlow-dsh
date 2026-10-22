@@ -17,6 +17,15 @@ OpenLux Desktop 唯一自研的 DSH 插件包，负责三块官方 DSH 没有的
 
 源码 161 个文件，`src/` 下是完整 TypeScript，不是反编译产物。
 
+## 文档
+
+| 文件 | 内容 |
+| --- | --- |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | 开发环境规范：**只用 WSL**、`DSH_HOME` 隔离、版本兼容机制、踩坑表 |
+| [MOUNTING.md](MOUNTING.md) | 装进 dsh profile 的完整流程与验证方法 |
+| [build-tarball.sh](build-tarball.sh) | typecheck + build + test + pack 一条命令 |
+| [run-dsh-wsl.sh](run-dsh-wsl.sh) | 在 WSL 里起一个隔离的 DSH 并装好插件 |
+
 ## 已验证
 
 ```bash
@@ -47,7 +56,11 @@ peerDependencies 列出了 44 个 `@deepseek-ai/*` 包（cordis、dsh-agent、ds
      name: echoflowai-tools
    ```
 
-   app-boot 会把依赖闭包里的包软链到 `$DSH_HOME/profiles/node_modules`，Node 从 profile 向上走时能找到。
+   `dsh plugin add` 会把包装进 profile 自己的 `node_modules` 并加进
+   `dsh.profile.bundles`，Node 从 profile 向上走时能找到。
+
+   ⚠️ 不要手动往 `$DSH_HOME/profiles/node_modules` 里加软链 —— app-boot
+   每次启动都会把指向不对的软链重建回去。详见 MOUNTING.md。
 
 2. 它自带 Web 客户端部分，`package.json` 的 `dsh.client.inject` 声明了注入的官方客户端模块，`tsdown.config.ts` 的 client 那一路会以 `echoflowai-tools` 为 id 注册到 shell 的模块加载器。
 

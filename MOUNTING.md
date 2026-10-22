@@ -1,7 +1,36 @@
-# Mounting this plugin into a dsh profile
+# Installing this plugin into a dsh profile
 
-Verified against this machine's live install on 2026-10-20. Every claim below
-was checked by reading the installed files, not assumed.
+Read DEVELOPMENT.md first: the environment is WSL-only, and `DSH_HOME`
+must point at the WSL-local home so a dsh command never writes the Windows
+profile.
+
+## The supported way
+
+```bash
+cd /home/zhijun/WorkSpace/dsh/openlux-plugin-account
+./build-tarball.sh
+
+export DSH_HOME=/home/zhijun/.dsh
+npx @deepseek-ai/dsh plugin --profile echoflow add ./dist/echoflowai-tools-0.1.0.tgz
+```
+
+`dsh plugin add` forwards to pnpm in the profile directory, installs the
+tarball, and adds the package to the profile's `dsh.profile.bundles` — but
+only if the package declares itself a bundle. Three manifest fields make
+that work:
+
+| Field | Value | Why |
+| --- | --- | --- |
+| `dsh.bundle.patch` | `"./cordis.patch.yml"` | tells dsh this package is a bundle layer, not a plain dependency |
+| `engines.dsh` | `">=0.2.1-rc.2 <0.3.0"` | decides compatibility on its own; the peers are ignored when this is present |
+| `files` | includes `"cordis.patch.yml"` | the patch `dsh.bundle` points at has to actually ship |
+
+Without the first, the install succeeds but warns
+`declares no dsh.bundle — installed as a plain dependency, not a profile
+layer`, and the plugin never enters the plugin tree.
+
+`run-dsh-wsl.sh` does all of this: it pins `DSH_HOME`, creates the profile
+from the shipped `web` template, builds the tarball, installs it, and boots.
 
 ## How dsh resolves plugins
 
@@ -38,92 +67,71 @@ the next start — and replacing the link with a directory is a hard error.
 *"installation-first order ... every in-box bundle always comes from the same
 installation as the running dsh, never from a profile-local copy."*
 
-## What the desktop profile actually looks like here
+## Do NOT combine a bundle patch with a manual insert
 
-`~/.dsh/profiles/desktop` is a real pnpm workspace (`nodeLinker: hoisted`):
-
-- 9 bundles in `dsh.profile.bundles`
-- 10 packages in its own `node_modules` (real directories: `dsh-ops`,
-  `dsh-wsl-tool`, `dsh-free-search`, `dshmarket`, ...)
-- `hoistedDependencies` is **empty** and `node_modules/.pnpm/node_modules` is
-  **empty**
-
-That last pair is the important one: this profile holds **no copy** of the
-~198 `@deepseek-ai/*` packages. It resolves them entirely from the flat
-fallback, whose symlinks are WSL-native (`st_mode 0o120777`) with `/mnt/c/...`
-targets. Windows Node follows them, which is why the running session works at
-all. WSL cannot follow them, so nothing in this environment can be verified by
-resolving a `@deepseek-ai/*` module from inside WSL — a MODULE_NOT_FOUND there
-is an artifact of the boundary, not a broken install.
-
-## Recommended: profile-local bundle
-
-Add the plugin to the profile's own `node_modules` and to
-`dsh.profile.bundles`. Node walks `<profile>/node_modules` before the flat
-fallback, so the profile copy wins, and `healProfilesModuleFallback` never
-touches it because it only manages the flat fallback directory.
-
-Two ways to place the package, with different tradeoffs:
-
-### A. `pnpm add file:<path>` — a copy
-
-Verified working (pnpm 10.20.0, 277 packages resolved, plugin entry loads and
-exports its 6 symbols). But pnpm **copies** into `.pnpm/file+...`: confirmed by
-inode comparison and by a file added to the source not appearing in the
-installed copy. So every source edit needs a re-run of `pnpm install`.
-
-### B. symlink directly into `<profile>/node_modules` — live
-
-Live edits, no reinstall. The symlink target must be in the form Windows Node
-reads. A WSL-created link with a `/home/...` target is readable from WSL but
-**not verified** to be followable by Windows Node — the flat fallback's links
-work because their targets are `/mnt/c/...` paths, which is a different case.
-
-Use B if you are iterating; use A if you want the install to survive a
-`pnpm install` run by something else.
-
-## Mounting as a bundle
-
-### Do NOT combine a bundle patch with a manual insert
-
-The package ships its own `cordis.patch.yml` (declared via
-`dsh.bundle.patch`), which already `insert:`s the plugin. Adding the same
-plugin again by appending a row to the profile's patch file loads it twice
-and fails with `duplicate loader entry id` — the tutorial's pitfall #6.
-Pick one:
+The package ships its own `cordis.patch.yml`, which already `insert:`s the
+plugin. Adding the same plugin again by appending a row to the profile's
+patch file loads it twice and fails with `duplicate loader entry id` — the
+tutorial's pitfall #6. Pick one:
 
 - **Bundle route (recommended):** `dsh plugin add` installs the package and
   composes it from the package's own patch. Do not add a manual row.
 - **Manual route:** install the tarball, add the package to
   `dsh.profile.bundles`, and add the row yourself. Do not do both.
 
-`cordis.patch.yml` cannot introduce a plugin from nothing — it can only
-reconfigure or disable rows, or `insert:` a row naming an already-resolvable
-package. So the package must be listed in `dsh.profile.bundles`:
+## Version compatibility
 
-```json
-"dsh": {
-  "profile": {
-    "bundles": [
-      "@deepseek-ai/dsh-base",
-      "...",
-      "echoflowai-tools"
-    ]
-  }
-}
+`dsh-app-boot`'s `unmetRequirements` decides this:
+
+- if `engines.dsh` is present, **it alone decides** and every
+  `peerDependencies` entry is ignored;
+- otherwise every `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer must
+  satisfy the runtime version. `workspace:^`, `workspace:~` and
+  `workspace:*` are the three ranges that resolve to the current runtime.
+
+This package declares `engines.dsh`, which is why it installs against
+`0.2.1-rc.2`.
+
+The peers are left as upstream shipped them on purpose: their version
+strings are an unreplaced build-time placeholder (`0.1.1-rc.2`),
+which no semver range can satisfy — `semver.satisfies` returns false for it
+against every runtime, including the one upstream itself ships against.
+Rewriting the peers to a concrete version would silently pin the plugin to
+one release; `engines.dsh` expresses the same thing without that.
+
+Do **not** reach for `dsh plugin allow-version ... --accept-risk` to get
+past a mismatch. It writes `<profile>/compatibility.json`, and DSH's own
+warning for it says it "may break the application or corrupt data".
+
+## Verifying the install before you start dsh
+
+The tutorial's pitfall #5: confirm the plugin actually entered the plugin
+tree before launching. Use the dump-config step — search its output for
+`echoflow`:
+
+```bash
+npx @deepseek-ai/dsh --profile echoflow --dump-config | grep -A3 echoflow
 ```
 
-The bundle name is what `cordis-plugin-loader` passes to `import()`
-(`this.parent.tree.import(this.options.name, ...)`), resolved by Node's normal
-rules. It does **not** have to match the package's `name` field — but keeping
-them equal avoids confusion, and this package is already renamed to
-`echoflowai-tools`.
+Expected:
+
+```
+# == echoflowai-tools
+- id: echoflow-account
+  name: echoflowai-tools
+  config:
+    baseUrl: https://api.echoflowai.cc
+```
+
+If nothing matches, the bundle was not composed — most often because
+`dsh.bundle.patch` is missing from package.json (the package then stays a
+plain npm dependency) or because the plugin was inserted twice
+(`duplicate loader entry id`).
 
 ## Peer dependencies
 
 The package declares 41 `peerDependencies`, all satisfiable from public npm.
-This profile sets `autoInstallPeers: false`, so install them explicitly or let
-them resolve from the flat fallback.
+`dsh plugin add` installs them through pnpm, so nothing extra is needed.
 
 Known upstream warning, harmless: `@deepseek-ai/cordis-plugin-loader@1.0.6`
 and `cordis-plugin-include@1.0.10` ask for `@deepseek-ai/cordis@~4.0.5` while
@@ -132,51 +140,25 @@ something this fork introduced.
 
 ## Reverting
 
-- Option A: `pnpm remove echoflowai-tools` in the profile, drop the bundle
-  entry.
-- Option B: delete `<profile>/node_modules/echoflowai-tools`, drop the bundle
-  entry.
-
-The flat fallback is untouched by either, so OpenLux Desktop keeps working.
-
-## Installing the tarball with npm
-
-`npm pack` output installs, but not with npm's default peer resolution:
-
-```
-npm install echoflowai-tools-0.1.0.tgz     # FAILS, and prints no reason
-npm install echoflowai-tools-0.1.0.tgz --legacy-peer-deps   # works
+```bash
+npx @deepseek-ai/dsh plugin --profile echoflow remove echoflowai-tools
 ```
 
-Verified on npm 11.17.0 / node 24.19.0. The failure is silent on purpose
-of nothing — npm resolves the tarball as a `file:` spec, hits the 41
-peerDependencies, and exits 1 with an **empty** error block. The debug log
-(`~/.npm/_logs/`) shows it dying mid-resolution right after placing
-`@deepseek-ai/cosmokit`, with no `ERESOLVE` line at all. That is an npm
-output defect, not a broken package: the same tarball installs fine from a
-plain directory (`npm install <dir>`), which takes a different code path.
+The profile's `package.json` and `cordis.patch.yml` are rewritten by the
+remove; if you want the profile back exactly as it was, keep a copy before
+installing.
 
-`--legacy-peer-deps` is the right flag here rather than a workaround: the
-peer set is upstream's own declaration, and the running dsh satisfies it
-from the flat fallback. Note that `cordis-plugin-loader@1.0.6` and
-`cordis-plugin-include@1.0.10` ask for `@deepseek-ai/cordis@~4.0.5` while
-4.0.1 is installed — that mismatch is upstream's, not this fork's.
+## A note on npm
 
-pnpm does not need the flag; it installs the same tarball with only a
-warning about those two peers.
+`npm install <tarball>` against this package exits 1 with an **empty** error
+block on npm 11: it resolves the tarball as a `file:` spec, hits the 41
+peers, and dies mid-resolution with no `ERESOLVE` line. The same tarball
+installs fine from a plain directory, which takes a different code path, so
+the package is sound — only the flag is needed:
 
-
-## Verifying the install before you start dsh
-
-The tutorial's pitfall #5: confirm the plugin actually entered the plugin
-tree before launching. Use the dump-config step — search its output for
-`echoflow-account` and `echoflowai-tools`:
-
-```powershell
-npx @deepseek-ai/dsh --profile desktop --dump-config | Select-String echoflow
+```bash
+npm install echoflowai-tools-0.1.0.tgz --legacy-peer-deps
 ```
 
-If nothing matches, the bundle was not composed — most often because
-`dsh.bundle.patch` is missing from package.json (the package then stays a
-plain npm dependency) or because the plugin was inserted twice
-(`duplicate loader entry id`).
+pnpm does not need the flag. `dsh plugin add` uses pnpm, so the supported
+path above is unaffected.
