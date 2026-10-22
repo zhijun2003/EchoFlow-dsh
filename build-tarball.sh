@@ -23,12 +23,14 @@ node src/models/_local_capability_check.cjs
 
 echo "==> pack"
 mkdir -p dist
-# sed, not a JSON rewrite: python's json.dump would reorder the keys and
-# leave package.json permanently modified.
+# Copy, don't rewrite: python's json.dump would reorder the keys. And do NOT
+# restore with `git checkout -- package.json` — that discards any uncommitted
+# edit to the manifest, which is how the engines.dsh and dsh.bundle fields
+# were silently lost once already.
+cp package.json .package.json.pack-backup
 sed -i '/^  "private": true,$/d' package.json
 restore_private() {
-  git checkout -- package.json 2>/dev/null || \
-    sed -i '0,/^{/s//{\n  "private": true,/' package.json
+  mv -f .package.json.pack-backup package.json
 }
 trap restore_private EXIT
 npm pack --pack-destination dist

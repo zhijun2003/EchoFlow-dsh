@@ -25,3 +25,4 @@ pnpm-debug.log*
 
 # built tarball (rebuild with ./build-tarball.sh)
 dist/
+.package.json.pack-backup
