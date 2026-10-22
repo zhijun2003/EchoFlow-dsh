@@ -48,13 +48,61 @@ is not `desktop` — the CLI refuses that one:
 
 ```bash
 export DSH_HOME=/home/zhijun/.dsh
-npx @deepseek-ai/dsh --profile echoflow --from-default-profile web
+~/.local/share/dsh-cli-secret/node_modules/.bin/dsh --profile echoflow
 ```
+
+Use the CLI at that fixed path, not `npx @deepseek-ai/dsh`: the profile's
+bundle dependencies (`@deepseek-ai/dsh-base`, `dsh-web-app`) resolve from
+the CLI package's own `node_modules`, and npx runs from a temp cache whose
+path changes between invocations.
+
+`run-dsh-wsl.sh` does all of it: pins `DSH_HOME`, installs the matching CLI
+if needed, patches the HMR gap, creates the profile from the shipped `web`
+template, builds and installs the tarball, and boots.
 
 `desktop` is rejected by `rejectElectronProfile` in the CLI
 (`profile "desktop" is managed exclusively by the Electron application`).
 Do not work around that by editing the Windows profile: the version
 exemption it would need is exactly the thing DSH warns can corrupt data.
+
+## The runtime this plugin is built against
+
+The published `@deepseek-ai/dsh` (0.2.1-rc.2) **cannot load this plugin**:
+its `dsh-settings` has no `settingsNamespace` export, which the plugin
+imports, so the entry fails to load with a `SyntaxError`.
+
+The peer versions upstream declares, `0.1.1-rc.2`, are not
+placeholders — they are a real version published on npm, and the version the
+plugin's source was written against. `npm view @deepseek-ai/dsh-settings
+versions` lists it right after `0.1.1-rc.1`.
+
+So the runtime is installed as:
+
+```bash
+npm install @deepseek-ai/dsh@0.1.1-rc.2
+```
+
+`run-dsh-wsl.sh` does that into `~/.local/share/dsh-cli-secret` and uses it
+from then on.
+
+Two further gaps in the published tree, worked around in the profile and in
+the CLI install:
+
+- `dsh-base` ships its `hmr` row **disabled**, and the boot path's
+  on-demand creation of that service is not awaited before the watcher asks
+  for it, so the boot fails with *"user patch-layer watching requires the
+  Cordis HMR service"*. The profile's `cordis.patch.yml` enables the row
+  dsh-base already defines.
+- The published `cordis-plugin-hmr` (1.0.20) has **no `registerConfig`**,
+  which the newer app-boot needs to watch the user patch layer; without it
+  the boot fails with *"hmr.registerConfig is not a function"*.
+  `patch-hmr-register-config.py` adds the method to the plugin's Hmr class
+  using the chokidar watch the class already imports. It is idempotent, and
+  `run-dsh-wsl.sh` applies it on every start.
+
+A shim plugin was tried for the second gap and removed — it could not win
+the race against the boot path, which creates the service after the tree
+settles and reads the method immediately.
 
 ## Version compatibility
 
