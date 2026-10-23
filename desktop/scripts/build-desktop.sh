@@ -113,7 +113,12 @@ done
 # --- 4. install and package ----------------------------------------------
 echo "==> installing dependencies (this takes a while)"
 cd "$UPSTREAM_DIR"
-pnpm install 2>&1 | tail -5
+# --no-frozen-lockfile: the overlay adds a dependency to
+# apps/desktop/package.json that upstream's lockfile does not carry, and pnpm
+# defaults to --frozen-lockfile when it detects CI. Without this the install
+# fails with "specifiers in the lockfile don't match specifiers in
+# package.json".
+pnpm install --no-frozen-lockfile 2>&1 | tail -8
 
 # Upstream refuses to package without a machine preset; the unsigned path is
 # the documented one for local and CI builds without signing credentials.
