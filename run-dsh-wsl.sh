@@ -39,6 +39,16 @@ if [ -f "$HMR_LIB" ]; then
   python3 "$REPO/patch-hmr-register-config.py" "$HMR_LIB" | sed 's/^/    /'
 fi
 
+# The published dsh-client-connection reaches `owner.webServer` as a property
+# from a context that never injected it, so every plugin calling
+# `connection.rpc.handle` dies with "cannot get property webServer without
+# inject". Needed only when the CLI is the published line; the newer build is
+# fine and the script is a no-op there.
+CONN_LIB="$CLI_HOME/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js"
+if [ -f "$CONN_LIB" ]; then
+  python3 "$REPO/patch-dsh-connection-webserver.py" "$CONN_LIB" | sed 's/^/    /'
+fi
+
 echo "DSH_HOME : $DSH_HOME"
 echo "profile  : $PROFILE"
 echo "repo     : $REPO"
