@@ -110,6 +110,12 @@ for f in "$OVERLAY"/brand/*; do
   echo "    brand -> $(basename "$f")"
 done
 
+# 3d. the packaging environment. Upstream's package-target.ts refuses to run
+# without apps/desktop/.env.windows, signed or not, so it has to exist. Ours
+# carries our app id, an update origin, and no signing credentials.
+cp "$OVERLAY/config/env.windows" "$UPSTREAM_DIR/apps/desktop/.env.windows"
+echo "    env -> .env.windows"
+
 # --- 4. install and package ----------------------------------------------
 echo "==> installing dependencies (this takes a while)"
 cd "$UPSTREAM_DIR"
