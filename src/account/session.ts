@@ -42,7 +42,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
  * Credential slot for the session blob. Named like the API key so both are
  * recognisable in `.credentials.yaml` as belonging to this product.
  */
-const SESSION_REF = credentialRef('OPENLUX_SESSION')
+const SESSION_REF = credentialRef('ECHOFLOW_SESSION')
 
 /** A session, with the account and site it is only valid for. */
 export interface StoredSession {
@@ -124,8 +124,8 @@ export async function clearSession(ctx: Context): Promise<void> {
  */
 function shadowHint(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error)
-  if (text.includes('OPENLUX_SESSION')) {
-    return '环境变量 OPENLUX_SESSION 正在占用登录状态的存放位置，请先取消该变量再登录。'
+  if (text.includes('ECHOFLOW_SESSION')) {
+    return '环境变量 ECHOFLOW_SESSION 正在占用登录状态的存放位置，请先取消该变量再登录。'
   }
   return `保存登录状态失败：${text}`
 }

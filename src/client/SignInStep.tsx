@@ -1,8 +1,15 @@
 /**
  * Sign-in as one entry in the shell's first-run queue.
  *
- * This file is only the readiness decision; the page itself is `SignInForm`,
- * because the sidebar mounts the same page after a sign-out.
+ * NOT REGISTERED. The shell arms that queue on every blank session, not only
+ * on first run, so a registered step puts the sign-in form in front of the
+ * user every time they open an empty session. Sign-in is one click away
+ * instead: the sidebar account row and the account section in Settings both
+ * open `SignInForm`, which is the page this file used to queue.
+ *
+ * The file is kept because the decision it makes — "is a usable key already
+ * on this machine?" — is the one a future opt-in prompt would need, and
+ * because the page it queued is mounted by the sidebar after a sign-out.
  *
  * The step decides its own applicability, the way every kernel onboarding
  * entry does: if a usable key is already on this machine — signed in earlier,

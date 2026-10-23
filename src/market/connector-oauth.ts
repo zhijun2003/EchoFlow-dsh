@@ -234,7 +234,7 @@ class ConnectorOAuthProvider implements OAuthClientProvider {
 
   get clientMetadata(): OAuthClientMetadata {
     return {
-      client_name: 'OpenLux Desktop',
+      client_name: 'EchoFlowSiHub Desktop',
       redirect_uris: [this.redirect],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],

@@ -45,7 +45,7 @@ import { planSearch, type SearchCandidate } from './candidates.ts'
 import { SearchAttemptError } from './transport.ts'
 
 /** The id this provider registers under; `web.searchProvider` names it. */
-export const OPENLUX_SEARCH_PROVIDER_ID = 'openlux-search'
+export const ECHOFLOW_SEARCH_PROVIDER_ID = 'echoflow-search'
 
 /**
  * How many models one search may spend.
@@ -83,8 +83,8 @@ export function shouldRetrySearchRound(errors: readonly unknown[]): boolean {
 }
 
 /** Search through the models this account was given, best first. */
-class OpenLuxSearchProvider implements WebSearchProvider {
-  readonly id = OPENLUX_SEARCH_PROVIDER_ID
+class EchoFlowSearchProvider implements WebSearchProvider {
+  readonly id = ECHOFLOW_SEARCH_PROVIDER_ID
 
   constructor(private readonly ctx: Context, private readonly options: SearchProviderOptions) {}
 
@@ -269,5 +269,5 @@ export function registerSearchProvider(ctx: Context, options: SearchProviderOpti
   const web = (ctx as unknown as {
     readonly web: { registerSearchProvider(provider: WebSearchProvider): unknown }
   }).web
-  web.registerSearchProvider(new OpenLuxSearchProvider(ctx, options))
+  web.registerSearchProvider(new EchoFlowSearchProvider(ctx, options))
 }

@@ -1314,7 +1314,7 @@ function summarize(config: BridgeConfig): string {
  * @returns the reference name.
  */
 function refNameFor(slug: string): string {
-  return `OPENLUX_MCP_${slug.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`
+  return `ECHOFLOW_MCP_${slug.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`
 }
 
 /**

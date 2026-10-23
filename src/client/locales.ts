@@ -81,7 +81,7 @@ export const zh = {
 
   // 反馈弹窗：形态承接老壳 FeedbackModal（正文唯一必填、图≤6张、诊断默认关）。
   'feedback': '意见反馈',
-  'feedbackTitle': '把问题或建议直接提交给 EchoFlow 团队',
+  'feedbackTitle': '把问题或建议直接提交给 EchoFlowSiHub 团队',
   'feedbackCategoryProblem': '遇到问题',
   'feedbackCategorySuggestion': '产品建议',
   'feedbackCategoryOther': '其他',
@@ -179,7 +179,7 @@ export const en = {
   'consoleTitle': 'Open the usage log and billing in your browser',
 
   'feedback': 'Feedback',
-  'feedbackTitle': 'Send a problem or suggestion straight to the EchoFlow team',
+  'feedbackTitle': 'Send a problem or suggestion straight to the EchoFlowSiHub team',
   'feedbackCategoryProblem': 'Problem',
   'feedbackCategorySuggestion': 'Suggestion',
   'feedbackCategoryOther': 'Other',

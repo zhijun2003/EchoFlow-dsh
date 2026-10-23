@@ -74,4 +74,16 @@ fi
 # `dsh` is a profile name, so `dsh web` boots the profile named "web".
 # Extra arguments are passed through to the app.
 echo "==> booting (profile $PROFILE)"
+
+# The launcher opens a browser through the WSL `open`/`xdg-open` path, which
+# on Windows usually lands nowhere visible. Call Windows' own `start` so the
+# page opens in the user's real browser. `exec` replaces the shell, so the
+# open happens first and the launcher takes over the process from here.
+if [ "${1:-}" != "--no-open" ]; then
+  BROWSER_URL="${DSH_WEB_URL:-http://127.0.0.1:3080}"
+  (cd /mnt/c/Windows 2>/dev/null && /mnt/c/Windows/System32/cmd.exe /c "start $BROWSER_URL" >/dev/null 2>&1 &) || true
+  sleep 1
+  exec "$CLI" --profile "$PROFILE" --no-open "$@"
+fi
+
 exec "$CLI" --profile "$PROFILE" "$@"

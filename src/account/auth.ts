@@ -40,7 +40,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ACCOUNT_TIMEOUT_MS, asEnvelope, normalizeBase, requestJson } from './http.ts'
 
 /** Token name created on the user's behalf, visible in their console. */
-const TOKEN_NAME = 'OpenLux 桌面客户端'
+const TOKEN_NAME = 'EchoFlowSiHub 桌面客户端'
 
 /**
  * Smart routing mode stamped on a created token.

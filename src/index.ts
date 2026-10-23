@@ -90,7 +90,7 @@ export const ACCOUNT_CHANNEL = '/openlux'
  * The name is not ours to choose: the kernel's model settings page derives
  * `<ROUTE>_API_KEY` from the provider route id, and our route is `openlux`.
  */
-const API_KEY_REF = credentialRef('OPENLUX_API_KEY')
+const API_KEY_REF = credentialRef('ECHOFLOW_API_KEY')
 
 /** Plugin configuration. */
 export interface Config {
@@ -133,7 +133,7 @@ type RuntimeModelDefaults = MutableModelDefaults
  * failure that reads like the service is down (measured 2026-08-20: `Host:
  * localhost:3001` serves 101 models, `Host: 127.0.0.1:3001` serves nothing).
  */
-const DEFAULT_BASE_URL = process.env.OPENLUX_BASE_URL ?? 'https://api.echoflowai.cc'
+const DEFAULT_BASE_URL = process.env.ECHOFLOW_BASE_URL ?? 'https://api.echoflowai.cc'
 
 /** Who is signed in, as far as the browser needs to know. */
 export interface AccountStatus {

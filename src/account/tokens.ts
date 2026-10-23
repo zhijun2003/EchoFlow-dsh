@@ -22,7 +22,7 @@ import { readSession, type StoredSession } from './session.ts'
 import { invalidateRuntimeModelCaches } from '../models/runtime-cache.ts'
 import type { ModelSyncCoordinator } from '../models/coordinator.ts'
 
-const API_KEY_REF = credentialRef('OPENLUX_API_KEY')
+const API_KEY_REF = credentialRef('ECHOFLOW_API_KEY')
 const ROUTING_PRIORITIES: readonly RoutingPriority[] = ['', 'auto', 'price', 'speed', 'success_rate']
 
 interface ApiToken {

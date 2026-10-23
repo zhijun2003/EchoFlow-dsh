@@ -96,7 +96,6 @@ import {
   en as sessionsEn, zh as sessionsZh, type SessionDeleteKey,
 } from './session-delete-locales.ts'
 import { modelChoice, watchModelChoice } from './selection.ts'
-import { SIGN_IN_ORDER, SIGN_IN_STEP_ID, SignInStep } from './SignInStep.tsx'
 import type { SignInStepInjected } from './SignInStep.tsx'
 import { AccountStore } from './store.ts'
 import { composerFor, SummonController, type SummonRequest } from './summon.ts'
@@ -118,7 +117,6 @@ export type { AccountTriggerInjected } from './AccountTrigger.tsx'
 export { SIGN_IN_ID } from './SignInForm.tsx'
 export { LOGIN_EXPIRED_ID, LoginExpiredDialog } from './LoginExpiredDialog.tsx'
 export type { LoginExpiredInjected } from './LoginExpiredDialog.tsx'
-export { SIGN_IN_ORDER, SIGN_IN_STEP_ID, SignInStep } from './SignInStep.tsx'
 export type { SignInStepInjected } from './SignInStep.tsx'
 export { AccountStore } from './store.ts'
 export type { AccountView, Balance, BalanceStatus } from './store.ts'
@@ -326,12 +324,12 @@ export function apply(ctx: ClientContext): void {
   // revision rather than a re-registration.
   const t = locale.bind(NS) as SignInStepInjected['t']
 
-  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
-    name: 'settings.onboarding',
-    id: SIGN_IN_STEP_ID,
-    order: SIGN_IN_ORDER,
-    inject: (): SignInStepInjected => ({ callHost, t, store }),
-  }, SignInStep))
+  // The sign-in step is deliberately NOT registered in the `settings.onboarding`
+  // queue. That queue is armed on every blank session, not only on first run,
+  // so registering it there puts the sign-in form in front of the user every
+  // time they open an empty session — before they have asked for it. The
+  // account row in the sidebar and the account section in Settings both open
+  // the same form, so sign-in stays one click away and nothing else changes.
 
   // The foot's bottom row: the kernel keeps the button and the click (it opens
   // the settings panel), we replace what the row says. Priority is the kernel's
@@ -623,7 +621,7 @@ export function apply(ctx: ClientContext): void {
      * label is the brand, not a translation, so it is locale-independent.
      */
     const labels: NonNullable<Window['__openluxProducerLabels']> = {
-      '@deepseek-ai/dsh-system-prompt': 'EchoFlow',
+      '@deepseek-ai/dsh-system-prompt': 'EchoFlowSiHub',
       // 做同款的参考注入行(`market/case-reference.ts` 的 CASE_REFERENCE_PRODUCER)。
       // 会话里整行隐藏(见下方 hidden),此标签只服务于轨迹页等其余入口。
       'openlux-case-reference': '参考案例',

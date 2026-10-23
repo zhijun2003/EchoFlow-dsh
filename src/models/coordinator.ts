@@ -13,7 +13,7 @@ import type { ConsoleAccess } from '../market/console.ts'
 import { invalidateRuntimeModelCaches } from './runtime-cache.ts'
 import { syncModels, type SyncOutcome } from './sync.ts'
 
-const API_KEY_REF = credentialRef('OPENLUX_API_KEY')
+const API_KEY_REF = credentialRef('ECHOFLOW_API_KEY')
 
 export interface MutableModelDefaults {
   imageModel: string | undefined

@@ -46,7 +46,7 @@ import { clearSession, readSession, type StoredSession } from './session.ts'
  * page neither shows nor clears it — sign-out and the signed-out branch of
  * {@link renewAttest} are what empty it.
  */
-export const FREE_API_KEY_REF = credentialRef('OPENLUX_FREE_API_KEY')
+export const FREE_API_KEY_REF = credentialRef('ECHOFLOW_FREE_API_KEY')
 
 /** Key prefix the relay signs with (`middleware/desktop_attest_auth.go`). */
 const KEY_PREFIX = 'dsk-'
