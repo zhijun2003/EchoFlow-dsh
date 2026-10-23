@@ -56,7 +56,9 @@ fi
 git -C "$UPSTREAM_DIR" checkout --detach "refs/tags/$UPSTREAM_TAG" 2>&1 | tail -1
 
 UPSTREAM_COMMIT="$(git -C "$UPSTREAM_DIR" rev-parse HEAD)"
+UPSTREAM_VERSION="$(node -p "require('$UPSTREAM_DIR/package.json').version")"
 echo "    upstream commit: ${UPSTREAM_COMMIT:0:12}"
+echo "    upstream version: $UPSTREAM_VERSION"
 
 # --- 2. build the plugin, which the overlay ships as a tarball ------------
 echo "==> building the plugin tarball"
@@ -67,13 +69,23 @@ echo "    plugin: $(basename "$PLUGIN_TGZ")"
 # --- 3. apply the overlay -------------------------------------------------
 echo "==> applying overlay"
 
-# 3a. the plugin becomes a dependency of the desktop app. Upstream's
-# prepare-package-set.ts packs whatever the desktop manifest declares, so a
-# file: dependency is enough to get it into the package set, and the profile
-# patch below mounts it as a bundle.
-DESKTOP_MANIFEST="$UPSTREAM_DIR/apps/desktop/package.json"
-# Node, not python: the GitHub Windows runner has no python3, and this script
-# has to run there. Node is guaranteed by setup-node in the workflow.
+# 3a. stage the plugin as a prebuilt package the runtime will carry.
+#
+# Not a workspace package: upstream's tsdown.config.ts globs every
+# packages/*/*/package.json as a build member and requires each to emit
+# lib/types/{index,startup}.js, which a prebuilt tarball does not. So the
+# plugin stays outside the monorepo build and is fed to the runtime through
+# the package-set step instead (3e).
+PLUGIN_STAGE="$BUILD_ROOT/plugin-packages"
+rm -rf "$PLUGIN_STAGE"
+mkdir -p "$PLUGIN_STAGE"
+cp "$PLUGIN_TGZ" "$PLUGIN_STAGE/"
+echo "    staged $(basename "$PLUGIN_TGZ")"
+
+# It still has to be a dependency of the desktop app for the install to place
+# it. A workspace member is the only form that resolves without publishing to
+# a registry, but the plugin is not one, so the reference is a file: path:
+# install-only, never built.
 node -e '
   const fs = require("node:fs")
   const [manifest, tgz] = process.argv.slice(1)
@@ -81,8 +93,8 @@ node -e '
   d.dependencies ??= {}
   d.dependencies["echoflowai-tools"] = "file:" + tgz
   fs.writeFileSync(manifest, JSON.stringify(d, null, 2) + "\n")
-  console.log("    added echoflowai-tools to apps/desktop/package.json")
-' "$DESKTOP_MANIFEST" "$PLUGIN_TGZ"
+  console.log("    added echoflowai-tools (file:) to apps/desktop/package.json")
+' "$UPSTREAM_DIR/apps/desktop/package.json" "$PLUGIN_TGZ"
 
 # 3b. mount it as a bundle, with our station as the base URL.
 cat > "$UPSTREAM_DIR/apps/desktop/cordis.patch.yml" <<'YML'
@@ -115,6 +127,40 @@ done
 # carries our app id, an update origin, and no signing credentials.
 cp "$OVERLAY/config/env.windows" "$UPSTREAM_DIR/apps/desktop/.env.windows"
 echo "    env -> .env.windows"
+
+# 3e. make the plugin a member of the package set.
+#
+# prepare-package-set.ts reads the tarballs in three directories
+# (.desktop-build/targets/<target>/packed/{dsh,vendor,landlock}). `--from`
+# replaces that list rather than extending it, so pointing it at our own
+# directory would drop upstream's packages. Instead the tarball is copied
+# into packed/dsh, next to the ones release:pack just wrote, and the default
+# input list picks it up untouched.
+#
+# The copy is injected into package-target.ts immediately before its
+# prepare:packages step, because that is the point where packed/dsh exists
+# and has not been read yet. It uses only names the file already imports
+# (mkdirSync, readFileSync, writeFileSync, join) - there is no `fs` or `path`
+# namespace object in scope there - and the source path is inside the
+# upstream checkout, so it exists on the runner as well as locally.
+PLUGIN_IN_TREE="$UPSTREAM_DIR/desktop-plugin.tgz"
+cp "$PLUGIN_TGZ" "$PLUGIN_IN_TREE"
+node -e '
+  const fs = require("node:fs")
+  const path = require("node:path")
+  const [file, tgz] = process.argv.slice(1)
+  const s = fs.readFileSync(file, "utf8")
+  const before = "await execute([\x27run\x27, \x27prepare:packages\x27], targetEnv)"
+  if (!s.includes(before)) { console.log("    package-target.ts: call site not found, skipped"); return }
+  const T = JSON.stringify(tgz)
+  const B = JSON.stringify(path.basename(tgz))
+  const stage = "await (async () => {\n" +
+    "      mkdirSync(buildPaths.packedDsh, { recursive: true })\n" +
+    "      writeFileSync(join(buildPaths.packedDsh, " + B + "), readFileSync(" + T + "))\n" +
+    "    })()\n    "
+  fs.writeFileSync(file, s.replace(before, stage + before))
+  console.log("    package-target.ts: copies the plugin tarball into packed/dsh")
+' "$UPSTREAM_DIR/apps/desktop/scripts/package-target.ts" "$PLUGIN_IN_TREE"
 
 # --- 4. install and package ----------------------------------------------
 echo "==> installing dependencies (this takes a while)"
