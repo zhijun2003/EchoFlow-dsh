@@ -125,6 +125,16 @@ function acceptLanguage(ctx: Context): string {
  * @returns the response and its parsed body (undefined when not JSON).
  * @throws {AccountRequestError} when no reply arrived.
  */
+/**
+ * User-Agent the station's browser-only routes accept.
+ *
+ * A desktop client asking the console to do a browser's job still has to
+ * present the browser's shape. The product token alone is not enough: the
+ * station rejects `Mozilla/5.0` and accepts the full Chrome signature.
+ */
+const STATION_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
 export async function requestJson(
   ctx: Context,
   url: string,
@@ -139,6 +149,14 @@ export async function requestJson(
     // it and answer in a language the user did not choose.
     const headers = new Headers(init.headers)
     headers.set('Accept-Language', acceptLanguage(ctx))
+    // The station answers `请使用浏览器登录` to anything that does not look
+    // like a browser: Node's fetch sends `Node.js/<version>`, which the
+    // login route rejects outright. Measured against
+    // api.echoflowai.cc on 2026-10-23: a full Chrome User-Agent is
+    // accepted with neither an Origin nor a Referer, while `Mozilla/5.0`
+    // alone is still rejected — the header has to carry the whole browser
+    // shape, not just the product token.
+    if (!headers.has('User-Agent')) headers.set('User-Agent', STATION_USER_AGENT)
     response = await fetch(url, { ...init, headers, signal: budget.signal })
   } catch (error: unknown) {
     // `timeoutOf` reads the reason only when the timer won the race, so an
