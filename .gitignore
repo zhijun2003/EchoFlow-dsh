@@ -26,3 +26,6 @@ pnpm-debug.log*
 # built tarball (rebuild with ./build-tarball.sh)
 dist/
 .package.json.pack-backup
+
+# upstream clone + build artifacts (rebuilt by desktop/scripts/build-desktop.sh)
+.desktop-build/

@@ -1,0 +1,60 @@
+# Publish the plugin to npm.
+#
+# Adapted from upstream's `release-publish.yml`, keeping only the part that
+# writes to the registry: upstream also builds native addons and wheels in
+# that workflow, which this package does not have.
+#
+# The token is `NPM_TOKEN` in repository secrets, with 2FA and an automation
+# token so the publish step does not need an interactive OTP.
+#
+# The version in package.json is what gets published, so a release is: bump
+# the version, commit, tag `plugin-v<version>`, push the tag.
+
+name: Publish Plugin
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'plugin-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install
+
+      # The same gate the desktop build uses: typecheck, build, and the
+      # capability test, so a broken plugin never reaches the registry.
+      - name: Verify
+        run: pnpm run typecheck && ./build-tarball.sh
+
+      # `private: true` blocks npm publish; the build script already removes
+      # and restores it around `npm pack`, and this needs the same treatment.
+      - name: Publish
+        run: |
+          python3 - <<'PY'
+          import json
+          p = 'package.json'
+          d = json.load(open(p))
+          d.pop('private', None)
+          json.dump(d, open(p, 'w'), indent=2)
+          PY
+          npm publish dist/echoflowai-tools-*.tgz --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
