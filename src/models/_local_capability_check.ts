@@ -18,7 +18,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { settingsNamespace } from '../dsh-compat/settings-namespace.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConsoleAccess } from '../market/console.ts'
 import { MANAGED_FLAG, type ModelEntry } from './delivery.ts'

@@ -17,7 +17,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { settingsNamespace } from '../dsh-compat/settings-namespace.ts'
 import { ROUTE } from './sync.ts'
 
 /** The adapter section holding this route's model entries. */

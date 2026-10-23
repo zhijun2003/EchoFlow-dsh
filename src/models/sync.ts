@@ -56,7 +56,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { SettingsConflictError, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { SettingsConflictError } from '@deepseek-ai/dsh-settings'
+import { settingsNamespace } from '../dsh-compat/settings-namespace.ts'
 import { readAttest } from '../account/attest.ts'
 import type { ConsoleAccess } from '../market/console.ts'
 import { fetchDeliveredModelConfig, type DeliveredModelConfig } from './delivered.ts'
