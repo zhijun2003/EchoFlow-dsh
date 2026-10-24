@@ -154,15 +154,18 @@ node -e '
   const [file, tgz] = process.argv.slice(1)
   const s = fs.readFileSync(file, "utf8")
   const before = "await execute([\x27run\x27, \x27prepare:packages\x27], targetEnv)"
-  if (!s.includes(before)) { console.log("    package-target.ts: call site not found, skipped"); return }
+  if (!s.includes(before)) {
+    console.log("    package-target.ts: call site not found, skipped")
+  } else {
   const T = JSON.stringify(tgz)
   const B = JSON.stringify(path.basename(tgz))
   const stage = "await (async () => {\n" +
     "      mkdirSync(buildPaths.packedDsh, { recursive: true })\n" +
     "      writeFileSync(join(buildPaths.packedDsh, " + B + "), readFileSync(" + T + "))\n" +
     "    })()\n    "
-  fs.writeFileSync(file, s.replace(before, stage + before))
-  console.log("    package-target.ts: copies the plugin tarball into packed/dsh")
+    fs.writeFileSync(file, s.replace(before, stage + before))
+    console.log("    package-target.ts: copies the plugin tarball into packed/dsh")
+  }
 ' "$UPSTREAM_DIR/apps/desktop/scripts/package-target.ts" "$PLUGIN_IN_TREE"
 
 # --- 4. install and package ----------------------------------------------
