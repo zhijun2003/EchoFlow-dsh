@@ -56,7 +56,10 @@ fi
 git -C "$UPSTREAM_DIR" checkout --detach "refs/tags/$UPSTREAM_TAG" 2>&1 | tail -1
 
 UPSTREAM_COMMIT="$(git -C "$UPSTREAM_DIR" rev-parse HEAD)"
-UPSTREAM_VERSION="$(node -p "require('$UPSTREAM_DIR/package.json').version")"
+# Through argv, not a JS string literal: a Windows path holds backslashes,
+# and embedding it in require('...') turns \a and \E into escape sequences,
+# so the lookup silently becomes /d/a/... and fails.
+UPSTREAM_VERSION="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).version' "$UPSTREAM_DIR/package.json")"
 echo "    upstream commit: ${UPSTREAM_COMMIT:0:12}"
 echo "    upstream version: $UPSTREAM_VERSION"
 
